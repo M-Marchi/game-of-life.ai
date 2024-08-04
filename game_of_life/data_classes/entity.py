@@ -51,7 +51,7 @@ class AliveEntity(Entity):
         new_y = self.y + self.direction[1] * dy
 
         # Ensure the entity does not move outside the screen boundaries
-        if 0 <= new_x < world_width - self.size - 100:
+        if 50 <= new_x < world_width - self.size - 50:
             self.x = new_x
-        if 0 <= new_y < world_height - self.size - 100:
+        if 50 <= new_y < world_height - self.size - 50:
             self.y = new_y
