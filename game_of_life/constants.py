@@ -26,3 +26,51 @@ COW_SPRITE = str(ANIMAL_SPRITE_DIR / "cow.png")
 # World sprites
 LAKE_SPRITE = str(WORLD_SPRITE_DIR / "lake.png")
 TREE_SPRITE = str(WORLD_SPRITE_DIR / "tree.png")
+
+
+# Names
+MALE_NAMES = [
+    "Arthur",
+    "Lancelot",
+    "Gawain",
+    "Percival",
+    "Galahad",
+    "Tristan",
+    "Bors",
+    "Kay",
+    "Geraint",
+    "Bedivere",
+    "Gareth",
+    "Lamorak",
+    "Dagonet",
+    "Mordred",
+    "Agravain",
+    "Uther",
+    "Owain",
+    "Pelleas",
+    "Ector",
+    "Balin",
+]
+
+FEMALE_NAMES = [
+    "Guinevere",
+    "Isolde",
+    "Elaine",
+    "Morgana",
+    "Nimue",
+    "Enid",
+    "Lunete",
+    "Ragnelle",
+    "Blanchefleur",
+    "Lynet",
+    "Dindrane",
+    "Clarissant",
+    "Brangaine",
+    "Sirwen",
+    "Melusine",
+    "Ygraine",
+    "Argante",
+    "Viviane",
+    "Rhiannon",
+    "Arianrhod",
+]

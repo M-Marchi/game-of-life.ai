@@ -1,3 +1,4 @@
+# game_of_life/main.py
 import pygame
 import sys
 
@@ -25,6 +26,9 @@ world = World(
 # Define colors
 BLACK = (0, 0, 0)
 
+# Set up the clock for managing the frame rate
+clock = pygame.time.Clock()
+
 # Main game loop
 running = True
 while running:
@@ -44,7 +48,7 @@ while running:
                 world.drag(*event.pos)
 
     # Update game state
-    # (Add game logic here)
+    world.update_humans()
 
     # Draw everything
     screen.fill(BLACK)
@@ -52,6 +56,9 @@ while running:
 
     # Update the display
     pygame.display.flip()
+
+    # Cap the frame rate at 30 fps
+    clock.tick(30)
 
 # Quit Pygame
 pygame.quit()

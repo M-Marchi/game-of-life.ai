@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 import pygame
 import random
 
+from game_of_life.constants import GENERIC_MALE_SPRITE, GENERIC_FEMALE_SPRITE
+from game_of_life.data_classes.human import Human
 from game_of_life.data_classes.world_entity import Tree, Lake
 
 
@@ -21,6 +23,7 @@ class World:
     dragging: bool = field(default=False, init=False)
     drag_start_x: int = field(default=0, init=False)
     drag_start_y: int = field(default=0, init=False)
+    humans: list = field(init=False)
 
     def __post_init__(self):
         self.trees = [
@@ -31,6 +34,9 @@ class World:
             (random.randint(0, self.width - 100), random.randint(0, self.height - 100))
             for _ in range(self.num_lakes)
         ]
+
+        self.humans = []
+        self.spawn_humans(10)
 
     def draw_background(self, screen):
         light_green = (51, 204, 51)  # Light green color
@@ -56,42 +62,85 @@ class World:
         for x, y in self.trees:
             minimap_x = int(x * minimap_width / self.width)
             minimap_y = int(y * minimap_height / self.height)
-            points = [(minimap_x, minimap_y), (minimap_x + 2, minimap_y - 4), (minimap_x + 4, minimap_y)]
+            points = [
+                (minimap_x, minimap_y),
+                (minimap_x + 2, minimap_y - 4),
+                (minimap_x + 4, minimap_y),
+            ]
             pygame.draw.polygon(minimap_surface, (0, 255, 0), points)
 
         # Draw lakes on minimap
         for x, y in self.lakes:
             minimap_x = int(x * minimap_width / self.width)
             minimap_y = int(y * minimap_height / self.height)
-            pygame.draw.ellipse(minimap_surface, (0, 0, 255), (minimap_x, minimap_y, 10, 5))
+            pygame.draw.ellipse(
+                minimap_surface, (0, 0, 255), (minimap_x, minimap_y, 10, 5)
+            )
 
         # Draw current view rectangle on minimap
         view_rect = pygame.Rect(
             int(self.offset_x * minimap_width / self.width),
             int(self.offset_y * minimap_height / self.height),
             int(self.screen_width * minimap_width / self.width / self.zoom_level),
-            int(self.screen_height * minimap_height / self.height / self.zoom_level)
+            int(self.screen_height * minimap_height / self.height / self.zoom_level),
         )
         pygame.draw.rect(minimap_surface, (255, 0, 0), view_rect, 2)
 
         # Blit minimap to the main screen
-        screen.blit(minimap_surface, (self.screen_width - minimap_width - 10, self.screen_height - minimap_height - 10))
+        screen.blit(
+            minimap_surface,
+            (
+                self.screen_width - minimap_width - 10,
+                self.screen_height - minimap_height - 10,
+            ),
+        )
+
+    def spawn_humans(self, count):
+        for _ in range(count):
+            x = random.randint(0, self.width - 10)
+            y = random.randint(0, self.height - 10)
+            gender = random.choice(["male", "female"])
+            human = Human(
+                x=x,
+                y=y,
+                sprite_path=(
+                    GENERIC_MALE_SPRITE if gender == "male" else GENERIC_FEMALE_SPRITE
+                ),
+                size=50,
+                gender=gender,
+            )
+            self.humans.append(human)
+
+    def update_humans(self):
+        for human in self.humans:
+            dx = random.randint(1, 5)
+            dy = random.randint(1, 5)
+            human.update(dx, dy, self.width, self.height)
+
+    def draw_humans(self, screen):
+        for human in self.humans:
+            human.draw(screen, self.zoom_level, self.offset_x, self.offset_y)
 
     def draw(self, screen):
         self.draw_background(screen)
         self.draw_trees(screen)
         self.draw_lakes(screen)
+        self.draw_humans(screen)
         self.draw_minimap(screen)
 
     def zoom_in(self):
-        max_zoom_level = min(self.width / self.screen_width, self.height / self.screen_height)
+        max_zoom_level = min(
+            self.width / self.screen_width, self.height / self.screen_height
+        )
         if self.zoom_level * 1.1 <= max_zoom_level:
             self.zoom_level *= 1.1
         else:
             self.zoom_level = max_zoom_level
 
     def zoom_out(self):
-        min_zoom_level = max(self.screen_width / self.width, self.screen_height / self.height)
+        min_zoom_level = max(
+            self.screen_width / self.width, self.screen_height / self.height
+        )
         if self.zoom_level / 1.1 >= min_zoom_level:
             self.zoom_level /= 1.1
         else:
