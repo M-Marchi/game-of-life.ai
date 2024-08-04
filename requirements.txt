@@ -1,0 +1,6 @@
+numpy==1.26.4
+pandas==2.0.2
+loguru~=0.7.2
+
+setuptools~=68.2.0
+pygame~=2.6.0
