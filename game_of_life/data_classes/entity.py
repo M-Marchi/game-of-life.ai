@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import random
+from loguru import logger as lg
 
 import pygame
 
@@ -53,5 +54,16 @@ class AliveEntity(Entity):
         # Ensure the entity does not move outside the screen boundaries
         if 50 <= new_x < world_width - self.size - 50:
             self.x = new_x
+        else:
+            lg.trace(f"Changing direction of {self.name} due to x boundary")
+            self.direction = (-self.direction[0], self.direction[1])
+            new_x = self.x + self.direction[0] * dx
+            self.x = new_x
+
         if 50 <= new_y < world_height - self.size - 50:
+            self.y = new_y
+        else:
+            lg.trace(f"Changing direction of {self.name} due to y boundary")
+            self.direction = (self.direction[0], -self.direction[1])
+            new_y = self.y + self.direction[1] * dy
             self.y = new_y

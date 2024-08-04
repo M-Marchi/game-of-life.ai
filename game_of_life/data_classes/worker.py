@@ -12,11 +12,17 @@ from game_of_life.constants import (
 class GenericMale(Human):
     def __init__(self, x, y, size):
         super().__init__(x, y, GENERIC_MALE_SPRITE, size, "male")
+        self.attack = 10
+        self.hunger = 100
+        self.life = 100
 
 
 class GenericFemale(Human):
     def __init__(self, x, y, size):
         super().__init__(x, y, GENERIC_FEMALE_SPRITE, size, "female")
+        self.attack = 0
+        self.hunger = 100
+        self.life = 100
 
 
 class Knight(Human):

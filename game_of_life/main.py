@@ -9,7 +9,7 @@ from game_of_life.world import World
 pygame.init()
 
 # Set up the game window
-screen_width, screen_height = 1920, 1080
+screen_width, screen_height = 1600, 800
 screen = pygame.display.set_mode((screen_width, screen_height))
 pygame.display.set_caption("Game of Life")
 
