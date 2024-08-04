@@ -2,9 +2,14 @@ from pathlib import Path
 
 
 PARENT_DIR = Path(__file__).parent
-STATIC_DIR = PARENT_DIR / "static"
+PROJECT_DIR = PARENT_DIR.parent
+STATIC_DIR = PROJECT_DIR / "static"
 SPRITE_DIR = STATIC_DIR / "sprites"
+
+WORLD_SPRITE_DIR = SPRITE_DIR / "world"
 HUMAN_SPRITE_DIR = SPRITE_DIR / "humans"
+ANIMAL_SPRITE_DIR = SPRITE_DIR / "animals"
+
 
 # Human sprites
 GENERIC_MALE_SPRITE = str(HUMAN_SPRITE_DIR / "generic_male.png")
@@ -14,3 +19,10 @@ KNIGHT_SPRITE = str(HUMAN_SPRITE_DIR / "knight.png")
 WIZARD_SPRITE = str(HUMAN_SPRITE_DIR / "wizard.png")
 BLACKSMITH_SPRITE = str(HUMAN_SPRITE_DIR / "blacksmith.png")
 FARMER_SPRITE = str(HUMAN_SPRITE_DIR / "farmer.png")
+
+# Animal sprites
+COW_SPRITE = str(ANIMAL_SPRITE_DIR / "cow.png")
+
+# World sprites
+LAKE_SPRITE = str(WORLD_SPRITE_DIR / "lake.png")
+TREE_SPRITE = str(WORLD_SPRITE_DIR / "tree.png")

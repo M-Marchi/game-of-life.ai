@@ -14,8 +14,8 @@ pygame.display.set_caption("Game of Life")
 
 # Create the world
 world = World(
-    screen_width * 10,
-    screen_height * 10,
+    screen_width * 2,
+    screen_height * 2,
     screen_width,
     screen_height,
     NUM_TREES,

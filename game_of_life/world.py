@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 import pygame
 import random
 
+from game_of_life.data_classes.world_entity import Tree, Lake
+
+
 @dataclass
 class World:
     width: int
@@ -30,24 +33,18 @@ class World:
         ]
 
     def draw_background(self, screen):
-        screen.fill((139, 69, 19))  # Brown background
+        light_green = (51, 204, 51)  # Light green color
+        screen.fill(light_green)
 
     def draw_trees(self, screen):
         for x, y in self.trees:
-            screen_x = (x - self.offset_x) * self.zoom_level
-            screen_y = (y - self.offset_y) * self.zoom_level
-            points = [
-                (screen_x, screen_y),
-                (screen_x + 5 * self.zoom_level, screen_y - 10 * self.zoom_level),
-                (screen_x + 10 * self.zoom_level, screen_y)
-            ]
-            pygame.draw.polygon(screen, (0, 255, 0), points)  # Green trees
+            tree = Tree(x, y, 50)
+            tree.draw(screen, self.zoom_level, self.offset_x, self.offset_y)
 
     def draw_lakes(self, screen):
         for x, y in self.lakes:
-            screen_x = (x - self.offset_x) * self.zoom_level
-            screen_y = (y - self.offset_y) * self.zoom_level
-            pygame.draw.ellipse(screen, (0, 0, 255), (screen_x, screen_y, 100 * self.zoom_level, 50 * self.zoom_level))  # Blue lakes
+            lake = Lake(x, y, 100)
+            lake.draw(screen, self.zoom_level, self.offset_x, self.offset_y)
 
     def draw_minimap(self, screen):
         minimap_width = 200
