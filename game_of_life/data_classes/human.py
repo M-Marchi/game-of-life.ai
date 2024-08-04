@@ -3,9 +3,9 @@ from typing import Literal
 
 import pygame
 
-# define GENDER_TYPE as literal of 'male' and 'female'
+GENDER_TYPE = Literal["male", "female"]
+ALIGNMENT_TYPE = Literal["good", "neutral", "evil"]
 
-GENDER_TYPE = Literal['male', 'female']
 
 @dataclass
 class Human:
@@ -16,6 +16,8 @@ class Human:
     gender: GENDER_TYPE
     attack: int = 0
     life: int = 100
+    alignment: ALIGNMENT_TYPE = "neutral"
+    backstory: str = ""
     sprite: pygame.Surface = field(init=False)
 
     def __post_init__(self):
