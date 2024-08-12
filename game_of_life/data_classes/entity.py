@@ -39,8 +39,8 @@ class AliveEntity(Entity):
     age: int = 0
     hunger: int = 0
     attack: int = 0
-    life: int = 0
-    energy: int = 0
+    life: int = 100
+    horny: int = 0
     alignment: ALIGNMENT_TYPE = "neutral"
     direction: tuple[int, int] = field(
         default_factory=lambda: (random.randint(-1, 1), random.randint(-1, 1))

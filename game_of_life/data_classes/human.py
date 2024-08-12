@@ -13,6 +13,7 @@ from game_of_life.constants import (
     GENERIC_MALE_SPRITE,
     GENERIC_FEMALE_SPRITE,
 )
+from game_of_life.data_classes.action import Action, ActionType
 from game_of_life.data_classes.entity import AliveEntity
 import random
 import pygame
@@ -26,11 +27,16 @@ class Human(AliveEntity):
     background: str = ""
     faction: FACTIONS = "red"
     brain: Brain = field(default_factory=Brain)
+    action: Action = field(default_factory=Action)
+    target_id: str | None = None
     langchain_handler: LangchainHandler = None
     thread: threading.Thread = field(init=False, default=None)
 
     def initialize(self):
         super().__post_init__()
+
+        # Initialize Action
+        self.action = Action(action_type=ActionType.IDLE)
 
         # Generate a name
         self._generate_name()
@@ -93,6 +99,7 @@ class GenericMale(Human):
             langchain_handler=langchain_handler,
         )
         self.gender = "male"
+        self.attack = random.randint(50, 100)
 
 
 class GenericFemale(Human):
@@ -105,3 +112,4 @@ class GenericFemale(Human):
             langchain_handler=langchain_handler,
         )
         self.gender = "female"
+        self.attack = random.randint(0, 50)

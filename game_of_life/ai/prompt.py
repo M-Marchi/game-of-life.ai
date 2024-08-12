@@ -1,5 +1,5 @@
 NEW_BACKGROUND_PROMPT = (
-    "Generate a short background for a medieval character named {name}. "
+    "Generate a short background for a character named {name}. "
     "The character has an IQ of {IQ}, is {gender}, belongs to the {faction_name} faction, "
     "has an attack level of {attack} (0-100), and is {age} years old. "
     "The story should include one life event, one skill, and one mission.\n"
