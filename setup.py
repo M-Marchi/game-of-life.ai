@@ -11,7 +11,7 @@ if CURRENT_PYTHON_VERSION < MIN_REQUIRED_PYTHON_VERSION:
 ==========================
 Unsupported Python version
 ==========================
-This version of isp_arepo requires Python {}.{}, but you're trying to
+This version of game of life requires Python {}.{}, but you're trying to
 install it on Python {}.{}.
 """.format(
             *(MIN_REQUIRED_PYTHON_VERSION + CURRENT_PYTHON_VERSION)
