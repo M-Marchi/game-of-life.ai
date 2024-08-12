@@ -15,11 +15,6 @@ ANIMAL_SPRITE_DIR = SPRITE_DIR / "animals"
 GENERIC_MALE_SPRITE = str(HUMAN_SPRITE_DIR / "generic_male.png")
 GENERIC_FEMALE_SPRITE = str(HUMAN_SPRITE_DIR / "generic_female.png")
 
-KNIGHT_SPRITE = str(HUMAN_SPRITE_DIR / "knight.png")
-WIZARD_SPRITE = str(HUMAN_SPRITE_DIR / "wizard.png")
-BLACKSMITH_SPRITE = str(HUMAN_SPRITE_DIR / "blacksmith.png")
-FARMER_SPRITE = str(HUMAN_SPRITE_DIR / "farmer.png")
-
 # Animal sprites
 COW_SPRITE = str(ANIMAL_SPRITE_DIR / "cow.png")
 
@@ -27,6 +22,8 @@ COW_SPRITE = str(ANIMAL_SPRITE_DIR / "cow.png")
 LAKE_SPRITE = str(WORLD_SPRITE_DIR / "lake.png")
 TREE_SPRITE = str(WORLD_SPRITE_DIR / "tree.png")
 
+# LLM
+MODEL_NAME = "phi3"
 
 # Names
 MALE_NAMES = [

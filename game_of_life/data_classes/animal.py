@@ -1,11 +1,16 @@
+from dataclasses import dataclass, field
 from game_of_life.constants import COW_SPRITE
 from game_of_life.data_classes.entity import AliveEntity
 
 
+@dataclass
 class Cow(AliveEntity):
-    def __init__(self, x, y, size, gender, meat: int = 10):
-        super().__init__(x, y, COW_SPRITE, size, gender)
-        self.meat = meat
-        self.attack = 0
-        self.hunger = 100
-        self.life = 100
+    meat: int = 10
+    age: int = field(init=False, default=0)
+    attack: int = field(init=False, default=0)
+    hunger: int = field(init=False, default=100)
+    life: int = field(init=False, default=100)
+    energy: int = field(init=False, default=100)
+
+    def __post_init__(self):
+        super().__post_init__()

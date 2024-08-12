@@ -12,11 +12,11 @@ ALIGNMENT_TYPE = Literal["good", "neutral", "evil"]
 
 @dataclass
 class Entity:
-    x: int
-    y: int
-    sprite_path: str
-    size: int
-    sprite: pygame.Surface = field(init=False)
+    x: int = 0
+    y: int = 0
+    sprite_path: str = None
+    size: int = 50
+    sprite: pygame.Surface = None
 
     def __post_init__(self):
         self.sprite = pygame.image.load(self.sprite_path)
@@ -34,14 +34,21 @@ class Entity:
 
 @dataclass
 class AliveEntity(Entity):
-    gender: GENDER_TYPE
+    id: str = None
+    gender: GENDER_TYPE = None
+    age: int = 0
     hunger: int = 0
     attack: int = 0
     life: int = 0
+    energy: int = 0
     alignment: ALIGNMENT_TYPE = "neutral"
     direction: tuple[int, int] = field(
         default_factory=lambda: (random.randint(-1, 1), random.randint(-1, 1))
     )
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.id = str(random.randint(0, 1000000))
 
     def update(self, dx, dy, world_width, world_height):
         # Change direction with a probability of 1/100

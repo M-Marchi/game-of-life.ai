@@ -2,8 +2,13 @@ from dataclasses import dataclass, field
 import pygame
 import random
 
-from game_of_life.constants import GENERIC_MALE_SPRITE, GENERIC_FEMALE_SPRITE
-from game_of_life.data_classes.human import Human
+from game_of_life.ai.langchain_handler import LangchainHandler
+from game_of_life.constants import (
+    GENERIC_MALE_SPRITE,
+    GENERIC_FEMALE_SPRITE,
+    MODEL_NAME,
+)
+from game_of_life.data_classes.human import Human, GenericMale, GenericFemale
 from game_of_life.data_classes.world_entity import Tree, Lake
 
 
@@ -24,8 +29,11 @@ class World:
     drag_start_x: int = field(default=0, init=False)
     drag_start_y: int = field(default=0, init=False)
     humans: list = field(init=False)
+    langchain_handler: LangchainHandler = field(init=False)
 
     def __post_init__(self):
+        self.langchain_handler = LangchainHandler(model_name=MODEL_NAME)
+
         self.trees = [
             (random.randint(0, self.width - 10), random.randint(0, self.height - 10))
             for _ in range(self.num_trees)
@@ -36,7 +44,7 @@ class World:
         ]
 
         self.humans = []
-        self.spawn_humans(10)
+        self.spawn_humans(2)
 
     def draw_background(self, screen):
         light_green = (51, 204, 51)  # Light green color
@@ -100,15 +108,21 @@ class World:
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
             gender = random.choice(["male", "female"])
-            human = Human(
-                x=x,
-                y=y,
-                sprite_path=(
-                    GENERIC_MALE_SPRITE if gender == "male" else GENERIC_FEMALE_SPRITE
-                ),
-                size=50,
-                gender=gender,
-            )
+            if gender == 'male':
+                human = GenericMale(
+                    x=x,
+                    y=y,
+                    size=50,
+                    langchain_handler=self.langchain_handler,
+                )
+            else:
+                human = GenericFemale(
+                    x=x,
+                    y=y,
+                    size=50,
+                    langchain_handler=self.langchain_handler,
+                )
+
             self.humans.append(human)
 
     def update_humans(self):
