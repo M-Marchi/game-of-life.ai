@@ -44,7 +44,6 @@ class World:
         ]
 
         self.humans = []
-        self.spawn_humans(2)
 
     def draw_background(self, screen):
         light_green = (51, 204, 51)  # Light green color
@@ -108,7 +107,7 @@ class World:
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
             gender = random.choice(["male", "female"])
-            if gender == 'male':
+            if gender == "male":
                 human = GenericMale(
                     x=x,
                     y=y,
@@ -122,7 +121,7 @@ class World:
                     size=50,
                     langchain_handler=self.langchain_handler,
                 )
-
+            human.start_thread()
             self.humans.append(human)
 
     def update_humans(self):

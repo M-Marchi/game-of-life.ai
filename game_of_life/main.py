@@ -1,9 +1,16 @@
 # game_of_life/main.py
 import pygame
 import sys
+import threading
 
 from game_of_life.config import *
 from game_of_life.world import World
+
+from loguru import logger as lg
+
+lg.remove()
+lg.add(sys.stderr, level="DEBUG")
+lg.success("Game of Life started")
 
 # Initialize Pygame
 pygame.init()
@@ -22,6 +29,8 @@ world = World(
     NUM_TREES,
     NUM_LAKES,
 )
+
+world.spawn_humans(2)
 
 # Define colors
 BLACK = (0, 0, 0)

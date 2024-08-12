@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama.llms import OllamaLLM
-
+from loguru import logger as lg
 
 
 @dataclass
@@ -14,5 +14,7 @@ class LangchainHandler:
 
     def call_model(self, prompt: str) -> str:
         chain = self.model
-        return chain.invoke(prompt)
-
+        lg.debug("Started the chain")
+        response = chain.invoke(prompt)
+        lg.debug(f"Response: {response}")
+        return response

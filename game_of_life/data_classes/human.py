@@ -1,4 +1,5 @@
 # game_of_life/data_classes/human.py
+import threading
 from dataclasses import dataclass, field
 from typing import Literal
 import numpy as np
@@ -26,8 +27,9 @@ class Human(AliveEntity):
     faction: FACTIONS = "red"
     brain: Brain = field(default_factory=Brain)
     langchain_handler: LangchainHandler = None
+    thread: threading.Thread = field(init=False, default=None)
 
-    def __post_init__(self):
+    def initialize(self):
         super().__post_init__()
 
         # Generate a name
@@ -41,6 +43,10 @@ class Human(AliveEntity):
 
         # Initialize Brain
         self.brain = Brain(IQ=self.IQ, LTM=[self.background], STM=[])
+
+    def start_thread(self):
+        self.thread = threading.Thread(target=self.initialize)
+        self.thread.start()
 
     def draw(self, screen, zoom_level=1.0, offset_x=0, offset_y=0):
         super().draw(screen, zoom_level, offset_x, offset_y)
@@ -77,14 +83,25 @@ class Human(AliveEntity):
         self.background = self.langchain_handler.call_model(prompt)
 
 
-
 class GenericMale(Human):
     def __init__(self, x, y, size, langchain_handler):
-        super().__init__(x=x, y=y, sprite_path=GENERIC_FEMALE_SPRITE, size=size, langchain_handler=langchain_handler)
+        super().__init__(
+            x=x,
+            y=y,
+            sprite_path=GENERIC_FEMALE_SPRITE,
+            size=size,
+            langchain_handler=langchain_handler,
+        )
         self.gender = "male"
 
 
 class GenericFemale(Human):
     def __init__(self, x, y, size, langchain_handler):
-        super().__init__(x=x, y=y, sprite_path=GENERIC_FEMALE_SPRITE, size=size, langchain_handler=langchain_handler)
+        super().__init__(
+            x=x,
+            y=y,
+            sprite_path=GENERIC_FEMALE_SPRITE,
+            size=size,
+            langchain_handler=langchain_handler,
+        )
         self.gender = "female"
