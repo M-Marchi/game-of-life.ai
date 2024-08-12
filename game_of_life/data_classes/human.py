@@ -90,12 +90,13 @@ class Human(AliveEntity):
 
 
 class GenericMale(Human):
-    def __init__(self, x, y, size, langchain_handler):
+    def __init__(self, x, y, size, age, langchain_handler):
         super().__init__(
             x=x,
             y=y,
             sprite_path=GENERIC_FEMALE_SPRITE,
             size=size,
+            age=age,
             langchain_handler=langchain_handler,
         )
         self.gender = "male"
@@ -103,12 +104,13 @@ class GenericMale(Human):
 
 
 class GenericFemale(Human):
-    def __init__(self, x, y, size, langchain_handler):
+    def __init__(self, x, y, size, age, langchain_handler):
         super().__init__(
             x=x,
             y=y,
             sprite_path=GENERIC_FEMALE_SPRITE,
             size=size,
+            age=age,
             langchain_handler=langchain_handler,
         )
         self.gender = "female"

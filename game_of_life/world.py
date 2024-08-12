@@ -107,11 +107,13 @@ class World:
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
             gender = random.choice(["male", "female"])
+            age = random.randint(18, 80)
             if gender == "male":
                 human = GenericMale(
                     x=x,
                     y=y,
                     size=50,
+                    age=age,
                     langchain_handler=self.langchain_handler,
                 )
             else:
@@ -119,6 +121,7 @@ class World:
                     x=x,
                     y=y,
                     size=50,
+                    age=age,
                     langchain_handler=self.langchain_handler,
                 )
             human.start_thread()
