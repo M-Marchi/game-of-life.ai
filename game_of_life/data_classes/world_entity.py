@@ -15,4 +15,8 @@ class Lake(Entity):
 @dataclass
 class Tree(Entity):
     def draw(self, screen):
-        pygame.draw.polygon(screen, (0, 255, 0), [(self.x, self.y), (self.x + 10, self.y), (self.x + 5, self.y - 10)])
+        pygame.draw.polygon(
+            screen,
+            (0, 255, 0),
+            [(self.x, self.y), (self.x + 10, self.y), (self.x + 5, self.y - 10)],
+        )

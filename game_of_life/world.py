@@ -20,24 +20,16 @@ class World:
     zoom_level: float = 1.0
     offset_x: int = 0
     offset_y: int = 0
-    trees: list = field(init=False)
-    lakes: list = field(init=False)
-    humans: list = field(init=False)
-    cows: list = field(init=False)
+    entities: list = field(init=False)
     langchain_handler: LangchainHandler = field(init=False)
 
     def __post_init__(self):
         self.langchain_handler = LangchainHandler(model_name=MODEL_NAME)
-
-        self.trees = []
-        self.lakes = []
-        self.humans = []
-        self.cows = []
+        self.entities = []
 
     def draw_background(self, screen):
         light_green = (51, 204, 51)  # Light green color
         screen.fill(light_green)
-
 
     def spawn_humans(self, count):
         for _ in range(count):
@@ -51,6 +43,7 @@ class World:
                     y=y,
                     age=age,
                     langchain_handler=self.langchain_handler,
+                    world=self,
                 )
             else:
                 human = GenericFemale(
@@ -58,63 +51,56 @@ class World:
                     y=y,
                     age=age,
                     langchain_handler=self.langchain_handler,
+                    world=self,
                 )
             human.start_thread()
-            self.humans.append(human)
-
-    def update_humans(self):
-        for human in self.humans:
-            dx = random.randint(0, 2)
-            dy = random.randint(0, 2)
-            human.update(dx, dy, self.width, self.height)
-
-    def update_cow(self):
-        for cow in self.cows:
-            dx = random.randint(0, 2)
-            dy = random.randint(0, 2)
-            cow.update(dx, dy, self.width, self.height)
-
-    def draw_humans(self, screen):
-        for human in self.humans:
-            human.draw(screen,)
+            self.entities.append(human)
 
     def spawn_cows(self, count):
         for _ in range(count):
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
-            cow = Cow(x=x, y=y)
-            self.cows.append(cow)
+            cow = Cow(x=x, y=y, world=self)
+            self.entities.append(cow)
 
-    def draw_cows(self, screen):
-        for cow in self.cows:
-            cow.draw(screen)
+    def update_humans(self):
+        for entity in self.entities:
+            if isinstance(entity, Human):
+                dx = 1
+                dy = 1
+                entity.update_movement(dx, dy, self.width, self.height)
+
+    def update_cow(self):
+        for entity in self.entities:
+            if isinstance(entity, Cow):
+                dx = 1
+                dy = 1
+                entity.update_movement(dx, dy, self.width, self.height)
 
     def spawn_trees(self, count):
         for _ in range(count):
             x = random.randint(0, self.width)
             y = random.randint(0, self.height)
             tree = Tree(x=x, y=y)
-            self.trees.append(tree)
+            self.entities.append(tree)
 
     def spawn_lakes(self, count):
         for _ in range(count):
             x = random.randint(0, self.width)
             y = random.randint(0, self.height)
             lake = Lake(x=x, y=y)
-            self.lakes.append(lake)
-
-    def draw_trees(self, screen):
-        for tree in self.trees:
-            tree.draw(screen)
-
-    def draw_lakes(self, screen):
-        for lake in self.lakes:
-            lake.draw(screen)
-
+            self.entities.append(lake)
 
     def draw(self, screen):
         self.draw_background(screen)
-        self.draw_trees(screen)
-        self.draw_lakes(screen)
-        self.draw_humans(screen)
-        self.draw_cows(screen)
+        for entity in self.entities:
+            entity.draw(screen)
+
+    def add_entity(self, entity):
+        self.entities.append(entity)
+
+    def remove_entity_by_id(self, entity_id):
+        for entity in self.entities:
+            if entity.id == entity_id:
+                self.entities.remove(entity)
+                break

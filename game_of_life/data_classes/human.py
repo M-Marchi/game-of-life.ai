@@ -27,7 +27,6 @@ class Human(AliveEntity):
     background: str = ""
     faction: FACTIONS = "red"
     brain: Brain = field(default_factory=Brain)
-    action: Action = field(default_factory=Action)
     target_id: str | None = None
     color: tuple[int, int, int] = (255, 255, 255)
     langchain_handler: LangchainHandler = None
@@ -81,12 +80,13 @@ class Human(AliveEntity):
 
 
 class GenericMale(Human):
-    def __init__(self, x, y, age, langchain_handler):
+    def __init__(self, x, y, age, langchain_handler, world):
         super().__init__(
             x=x,
             y=y,
             age=age,
             langchain_handler=langchain_handler,
+            world=world,
         )
         self.gender = "male"
         # Lightblue color
@@ -95,12 +95,13 @@ class GenericMale(Human):
 
 
 class GenericFemale(Human):
-    def __init__(self, x, y, age, langchain_handler):
+    def __init__(self, x, y, age, langchain_handler, world):
         super().__init__(
             x=x,
             y=y,
             age=age,
             langchain_handler=langchain_handler,
+            world=world,
         )
         self.gender = "female"
         # Pink color

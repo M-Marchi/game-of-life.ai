@@ -5,12 +5,13 @@ from enum import Enum
 class ActionType(Enum):
     MOVE = 1
     ATTACK = 2
-    EAT = 3
+    FIND_FOOD = 3
     SLEEP = 4
-    REPRODUCE = 5
+    FIND_PARTNER = 5
     DIE = 6
     IDLE = 7
-    NONE = 8
+    GO_TO_TARGET = 8
+    NONE = 9
 
 
 @dataclass
