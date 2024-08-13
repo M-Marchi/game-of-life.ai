@@ -29,11 +29,11 @@ class Human(AliveEntity):
     brain: Brain = field(default_factory=Brain)
     action: Action = field(default_factory=Action)
     target_id: str | None = None
+    color: tuple[int, int, int] = (255, 255, 255)
     langchain_handler: LangchainHandler = None
     thread: threading.Thread = field(init=False, default=None)
 
     def initialize(self):
-        super().__post_init__()
 
         # Initialize Action
         self.action = Action(action_type=ActionType.IDLE)
@@ -54,17 +54,8 @@ class Human(AliveEntity):
         self.thread = threading.Thread(target=self.initialize)
         self.thread.start()
 
-    def draw(self, screen, zoom_level=1.0, offset_x=0, offset_y=0):
-        super().draw(screen, zoom_level, offset_x, offset_y)
-        font = pygame.font.Font(None, 24)
-        text_surface = font.render(self.name, True, (255, 255, 255))
-        text_rect = text_surface.get_rect(
-            center=(
-                (self.x - offset_x) * zoom_level,
-                (self.y - 10 - offset_y) * zoom_level,
-            )
-        )
-        screen.blit(text_surface, text_rect)
+    def draw(self, screen):
+        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 10, 10))
 
     def _generate_name(self):
         # Generate a name based on gender
@@ -90,28 +81,28 @@ class Human(AliveEntity):
 
 
 class GenericMale(Human):
-    def __init__(self, x, y, size, age, langchain_handler):
+    def __init__(self, x, y, age, langchain_handler):
         super().__init__(
             x=x,
             y=y,
-            sprite_path=GENERIC_FEMALE_SPRITE,
-            size=size,
             age=age,
             langchain_handler=langchain_handler,
         )
         self.gender = "male"
+        # Lightblue color
+        self.color = (173, 216, 230)
         self.attack = random.randint(50, 100)
 
 
 class GenericFemale(Human):
-    def __init__(self, x, y, size, age, langchain_handler):
+    def __init__(self, x, y, age, langchain_handler):
         super().__init__(
             x=x,
             y=y,
-            sprite_path=GENERIC_FEMALE_SPRITE,
-            size=size,
             age=age,
             langchain_handler=langchain_handler,
         )
         self.gender = "female"
+        # Pink color
+        self.color = (255, 192, 203)
         self.attack = random.randint(0, 50)

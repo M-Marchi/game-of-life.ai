@@ -6,35 +6,26 @@ import pygame
 
 from typing import Literal
 
+
 GENDER_TYPE = Literal["male", "female"]
 ALIGNMENT_TYPE = Literal["good", "neutral", "evil"]
 
 
 @dataclass
 class Entity:
+    id: str = None
     x: int = 0
     y: int = 0
-    sprite_path: str = None
-    size: int = 50
-    sprite: pygame.Surface = None
 
     def __post_init__(self):
-        self.sprite = pygame.image.load(self.sprite_path)
-        self.sprite = pygame.transform.scale(self.sprite, (self.size, self.size))
+        self.id = str(random.randint(0, 1000000))
 
-    def draw(self, screen, zoom_level=1.0, offset_x=0, offset_y=0):
-        scaled_sprite = pygame.transform.scale(
-            self.sprite, (int(self.size * zoom_level), int(self.size * zoom_level))
-        )
-        screen.blit(
-            scaled_sprite,
-            ((self.x - offset_x) * zoom_level, (self.y - offset_y) * zoom_level),
-        )
+    def draw(self, screen):
+        raise NotImplemented("draw method must be implemented in subclasses")
 
 
 @dataclass
 class AliveEntity(Entity):
-    id: str = None
     gender: GENDER_TYPE = None
     age: int = 0
     hunger: int = 0
@@ -48,7 +39,6 @@ class AliveEntity(Entity):
 
     def __post_init__(self):
         super().__post_init__()
-        self.id = str(random.randint(0, 1000000))
 
     def update(self, dx, dy, world_width, world_height):
         # Change direction with a probability of 1/100
@@ -59,18 +49,18 @@ class AliveEntity(Entity):
         new_y = self.y + self.direction[1] * dy
 
         # Ensure the entity does not move outside the screen boundaries
-        if 50 <= new_x < world_width - self.size - 50:
+        if 50 <= new_x < world_width - 50:
             self.x = new_x
         else:
-            lg.trace(f"Changing direction of {self.name} due to x boundary")
+            lg.trace(f"Changing direction of {self.id} due to x boundary")
             self.direction = (-self.direction[0], self.direction[1])
             new_x = self.x + self.direction[0] * dx
             self.x = new_x
 
-        if 50 <= new_y < world_height - self.size - 50:
+        if 50 <= new_y < world_height - 50:
             self.y = new_y
         else:
-            lg.trace(f"Changing direction of {self.name} due to y boundary")
+            lg.trace(f"Changing direction of {self.id} due to y boundary")
             self.direction = (self.direction[0], -self.direction[1])
             new_y = self.y + self.direction[1] * dy
             self.y = new_y

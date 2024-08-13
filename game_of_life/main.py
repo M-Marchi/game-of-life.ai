@@ -22,15 +22,17 @@ pygame.display.set_caption("Game of Life")
 
 # Create the world
 world = World(
-    screen_width * 2,
-    screen_height * 2,
     screen_width,
     screen_height,
     NUM_TREES,
     NUM_LAKES,
 )
 
+# Spawn entities
+world.spawn_lakes(3)
+world.spawn_trees(10)
 world.spawn_humans(2)
+world.spawn_cows(5)
 
 # Define colors
 BLACK = (0, 0, 0)
@@ -44,20 +46,10 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        elif event.type == pygame.MOUSEWHEEL:
-            world.handle_mouse_wheel(event)
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:  # Left mouse button
-                world.start_drag(*event.pos)
-        elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:  # Left mouse button
-                world.end_drag()
-        elif event.type == pygame.MOUSEMOTION:
-            if world.dragging:
-                world.drag(*event.pos)
 
     # Update game state
     world.update_humans()
+    world.update_cow()
 
     # Draw everything
     screen.fill(BLACK)
