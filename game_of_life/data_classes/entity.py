@@ -28,7 +28,10 @@ class Entity:
     world: Any = None
 
     def __post_init__(self):
-        self.id = self.__class__.__name__ + str(random.randint(0, 100000))
+        # Generate a unique ID for the entity
+        list_of_entities = [entity.id for entity in self.world.entities]
+        while self.id is None or self.id in list_of_entities:
+            self.id = self.__class__.__name__ + str(random.randint(0, 100000))
 
     def draw(self, screen):
         raise NotImplemented("draw method must be implemented in subclasses")

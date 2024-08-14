@@ -23,7 +23,7 @@ LAKE_SPRITE = str(WORLD_SPRITE_DIR / "lake.png")
 TREE_SPRITE = str(WORLD_SPRITE_DIR / "tree.png")
 
 # LLM
-MODEL_NAME = "qwen2:0.5b"
+MODEL_NAME = "gemma2:2b"
 
 # Names
 MALE_NAMES = [

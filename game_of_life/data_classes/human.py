@@ -18,6 +18,8 @@ from game_of_life.data_classes.entity import AliveEntity
 import random
 import pygame
 
+from game_of_life.regex import get_dictionary_from_response
+
 FACTIONS = Literal["red", "blue"]
 
 
@@ -53,7 +55,12 @@ class Human(AliveEntity):
         self.thread.start()
 
     def draw(self, screen):
-        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 10, 10))
+        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 2, 2))
+
+        # Draw name on top of the human
+        font = pygame.font.Font(None, 11)
+        text = font.render(self.name, True, (255, 255, 255))
+        screen.blit(text, (self.x - 10, self.y - 10))
 
     def think(self) -> Action:
         self.brain.process()
@@ -79,7 +86,8 @@ class Human(AliveEntity):
             attack=self.attack,
             age=self.age,
         )
-        self.background = self.langchain_handler.call_model(prompt)
+        response = self.langchain_handler.call_model(prompt)
+        self.background = get_dictionary_from_response(response)
 
 
 class GenericMale(Human):

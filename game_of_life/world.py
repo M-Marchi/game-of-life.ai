@@ -82,14 +82,14 @@ class World:
         for _ in range(count):
             x = random.randint(0, self.width)
             y = random.randint(0, self.height)
-            tree = Tree(x=x, y=y)
+            tree = Tree(x=x, y=y, world=self)
             self.entities.append(tree)
 
     def spawn_lakes(self, count):
         for _ in range(count):
             x = random.randint(0, self.width)
             y = random.randint(0, self.height)
-            lake = Lake(x=x, y=y)
+            lake = Lake(x=x, y=y, world=self)
             self.entities.append(lake)
 
     def draw(self, screen):

@@ -19,12 +19,12 @@ class Cow(AliveEntity):
 
     def draw(self, screen):
         # Draw the white body of the cow as a rectangle
-        pygame.draw.rect(screen, (255, 255, 255), pygame.Rect(self.x, self.y, 10, 10))
+        pygame.draw.rect(screen, (255, 255, 255), pygame.Rect(self.x, self.y, 2, 2))
 
-        # Draw a circle around to simulate eyesight
-        pygame.draw.circle(
-            screen, (255, 255, 255), (self.x + 5, self.y + 5), self.eye_sight, 1
-        )
+        # # Draw a circle around to simulate eyesight
+        # pygame.draw.circle(
+        #     screen, (255, 255, 255), (self.x + 5, self.y + 5), self.eye_sight, 1
+        # )
 
     def think(self) -> Action:
         entities_dict = self.get_nearby_entities()
