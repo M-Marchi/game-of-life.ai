@@ -60,7 +60,8 @@ class World:
         for _ in range(count):
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
-            cow = Cow(x=x, y=y, world=self)
+            gender = random.choice(["male", "female"])
+            cow = Cow(gender=gender, x=x, y=y, world=self)
             self.entities.append(cow)
 
     def update_humans(self):
@@ -68,14 +69,14 @@ class World:
             if isinstance(entity, Human):
                 dx = 1
                 dy = 1
-                entity.update_movement(dx, dy, self.width, self.height)
+                entity.update_movement(dx, dy)
 
     def update_cow(self):
         for entity in self.entities:
             if isinstance(entity, Cow):
-                dx = 1
-                dy = 1
-                entity.update_movement(dx, dy, self.width, self.height)
+                entity.think()
+                entity.interact(entity.action)
+                entity.update_stats()
 
     def spawn_trees(self, count):
         for _ in range(count):

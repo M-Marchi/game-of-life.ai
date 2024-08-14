@@ -27,7 +27,6 @@ class Human(AliveEntity):
     background: str = ""
     faction: FACTIONS = "red"
     brain: Brain = field(default_factory=Brain)
-    target_id: str | None = None
     color: tuple[int, int, int] = (255, 255, 255)
     langchain_handler: LangchainHandler = None
     thread: threading.Thread = field(init=False, default=None)
@@ -55,6 +54,10 @@ class Human(AliveEntity):
 
     def draw(self, screen):
         pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 10, 10))
+
+    def think(self) -> Action:
+        self.brain.process()
+        return Action(action_type=ActionType.IDLE)
 
     def _generate_name(self):
         # Generate a name based on gender

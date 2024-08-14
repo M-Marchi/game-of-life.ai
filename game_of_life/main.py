@@ -30,9 +30,9 @@ world = World(
 
 # Spawn entities
 world.spawn_lakes(3)
-world.spawn_trees(10)
-world.spawn_humans(2)
-world.spawn_cows(5)
+world.spawn_trees(50)
+world.spawn_humans(0)
+world.spawn_cows(10)
 
 # Define colors
 BLACK = (0, 0, 0)
