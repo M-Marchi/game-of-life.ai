@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import pygame
 
-from game_of_life.constants import COW_SPRITE
+from game_of_life.constants import HUNGER_THRESHOLD, HORNY_THRESHOLD
 from game_of_life.data_classes.action import Action, ActionType
 from game_of_life.data_classes.entity import AliveEntity, get_entity_by_id
 from game_of_life.data_classes.world_entity import Tree
@@ -30,9 +30,15 @@ class Cow(AliveEntity):
         entities_dict = self.get_nearby_entities()
         target_distance = 999999
 
-        if self.hunger > 1000 or self.action.action_type == ActionType.FIND_FOOD:
+        if (
+            self.hunger > HUNGER_THRESHOLD
+            or self.action.action_type == ActionType.FIND_FOOD
+        ):
             self.action = self.find_food(entities_dict, target_distance)
-        elif self.horny > 100000 or self.action.action_type == ActionType.FIND_PARTNER:
+        elif (
+            self.horny > HORNY_THRESHOLD
+            or self.action.action_type == ActionType.FIND_PARTNER
+        ):
             self.action = self.find_partner(entities_dict, target_distance)
         else:
             self.action = Action(action_type=ActionType.IDLE)
@@ -62,9 +68,7 @@ class Cow(AliveEntity):
             if isinstance(entity, Cow) and entity.gender != self.gender:
                 if distance < 2:
                     self.horny = 0
-                    new_cow = Cow(x=self.x, y=self.y, world=self.world)
-                    self.world.entities.append(new_cow)
-                    lg.info(f"New Cow {new_cow.id} was born")
+                    self.world.spawn_cows(1)
                     return Action(action_type=ActionType.IDLE)
                 elif distance < self.eye_sight:
                     if target_distance > distance:

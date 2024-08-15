@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import pygame
 
 from game_of_life.data_classes.entity import Entity
-from game_of_life.constants import LAKE_SPRITE, TREE_SPRITE
 
 
 @dataclass

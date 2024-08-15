@@ -8,12 +8,13 @@ import pygame
 from typing import Literal, Any
 
 from game_of_life.data_classes.action import Action, ActionType
+from game_of_life.constants import HUNGER_THRESHOLD
 
 GENDER_TYPE = Literal["male", "female"]
 ALIGNMENT_TYPE = Literal["good", "neutral", "evil"]
 
 
-def get_entity_by_id(entities, entity_id):
+def get_entity_by_id(entities, entity_id) -> Any:
     for entity in entities:
         if entity.id == entity_id:
             return entity
@@ -130,7 +131,7 @@ class AliveEntity(Entity):
         self.horny += 1
         self.iteration += 1
 
-        if self.hunger > 10000:
+        if self.hunger > HUNGER_THRESHOLD * 2:
             self.life -= 1
         else:
             self.life += 1

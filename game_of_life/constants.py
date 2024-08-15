@@ -1,73 +1,60 @@
+from imaplib import Literal
 from pathlib import Path
 
 
 PARENT_DIR = Path(__file__).parent
 PROJECT_DIR = PARENT_DIR.parent
 STATIC_DIR = PROJECT_DIR / "static"
-SPRITE_DIR = STATIC_DIR / "sprites"
 
-WORLD_SPRITE_DIR = SPRITE_DIR / "world"
-HUMAN_SPRITE_DIR = SPRITE_DIR / "humans"
-ANIMAL_SPRITE_DIR = SPRITE_DIR / "animals"
+# Simulation parameters
+HUNGER_THRESHOLD = 10000
+HORNY_THRESHOLD = 100000
 
-
-# Human sprites
-GENERIC_MALE_SPRITE = str(HUMAN_SPRITE_DIR / "generic_male.png")
-GENERIC_FEMALE_SPRITE = str(HUMAN_SPRITE_DIR / "generic_female.png")
-
-# Animal sprites
-COW_SPRITE = str(ANIMAL_SPRITE_DIR / "cow.png")
-
-# World sprites
-LAKE_SPRITE = str(WORLD_SPRITE_DIR / "lake.png")
-TREE_SPRITE = str(WORLD_SPRITE_DIR / "tree.png")
-
-# LLM
 MODEL_NAME = "gemma2:2b"
 
 # Names
 MALE_NAMES = [
-    "Arthur",
-    "Lancelot",
-    "Gawain",
-    "Percival",
-    "Galahad",
-    "Tristan",
-    "Bors",
-    "Kay",
-    "Geraint",
-    "Bedivere",
-    "Gareth",
-    "Lamorak",
-    "Dagonet",
-    "Mordred",
-    "Agravain",
-    "Uther",
-    "Owain",
-    "Pelleas",
-    "Ector",
-    "Balin",
+    "James",
+    "John",
+    "Robert",
+    "Michael",
+    "William",
+    "David",
+    "Richard",
+    "Joseph",
+    "Thomas",
+    "Charles",
+    "Christopher",
+    "Daniel",
+    "Matthew",
+    "Anthony",
+    "Mark",
+    "Donald",
+    "Steven",
+    "Paul",
+    "Andrew",
+    "Joshua",
 ]
 
 FEMALE_NAMES = [
-    "Guinevere",
-    "Isolde",
-    "Elaine",
-    "Morgana",
-    "Nimue",
-    "Enid",
-    "Lunete",
-    "Ragnelle",
-    "Blanchefleur",
-    "Lynet",
-    "Dindrane",
-    "Clarissant",
-    "Brangaine",
+    "Mary",
+    "Patricia",
+    "Jennifer",
+    "Linda",
+    "Elizabeth",
     "Sirwen",
-    "Melusine",
-    "Ygraine",
-    "Argante",
-    "Viviane",
-    "Rhiannon",
-    "Arianrhod",
+    "Susan",
+    "Jessica",
+    "Sarah",
+    "Karen",
+    "Nancy",
+    "Lisa",
+    "Margaret",
+    "Betty",
+    "Sandra",
+    "Ashley",
+    "Dorothy",
+    "Kimberly",
+    "Emily",
+    "Donna",
 ]

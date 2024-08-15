@@ -3,6 +3,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama.llms import OllamaLLM
 from loguru import logger as lg
 
+from game_of_life.data_classes.action import Action, ActionType
+
 
 @dataclass
 class LangchainHandler:

@@ -58,8 +58,8 @@ while running:
     # Update the display
     pygame.display.flip()
 
-    # Cap the frame rate at 30 fps
-    clock.tick(30)
+    # Cap the frame rate at 10 fps
+    clock.tick(10)
 
 # Quit Pygame
 pygame.quit()

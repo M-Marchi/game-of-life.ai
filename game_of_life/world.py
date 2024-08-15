@@ -4,13 +4,13 @@ import random
 
 from game_of_life.ai.langchain_handler import LangchainHandler
 from game_of_life.constants import (
-    GENERIC_MALE_SPRITE,
-    GENERIC_FEMALE_SPRITE,
     MODEL_NAME,
 )
 from game_of_life.data_classes.animal import Cow
 from game_of_life.data_classes.human import Human, GenericMale, GenericFemale
 from game_of_life.data_classes.world_entity import Tree, Lake
+
+from loguru import logger as lg
 
 
 @dataclass
@@ -53,7 +53,8 @@ class World:
                     langchain_handler=self.langchain_handler,
                     world=self,
                 )
-            human.start_thread()
+            lg.info(f"New human {human.id} was born")
+            human.start_thread_initialize()
             self.entities.append(human)
 
     def spawn_cows(self, count):
@@ -62,14 +63,16 @@ class World:
             y = random.randint(0, self.height - 10)
             gender = random.choice(["male", "female"])
             cow = Cow(gender=gender, x=x, y=y, world=self)
+            lg.info(f"New cow {cow.id} was born")
             self.entities.append(cow)
 
     def update_humans(self):
         for entity in self.entities:
             if isinstance(entity, Human):
-                dx = 1
-                dy = 1
-                entity.update_movement(dx, dy)
+                if entity.thread is None or not entity.thread.is_alive():
+                    entity.start_thread_think()
+                    entity.interact(entity.action)
+                entity.update_stats()
 
     def update_cow(self):
         for entity in self.entities:
