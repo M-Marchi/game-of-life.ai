@@ -7,7 +7,7 @@ from game_of_life.constants import (
     MODEL_NAME,
 )
 from game_of_life.data_classes.animal import Cow
-from game_of_life.data_classes.human import Human, GenericMale, GenericFemale
+from game_of_life.data_classes.human import Human
 from game_of_life.data_classes.world_entity import Tree, Lake
 
 from loguru import logger as lg
@@ -32,30 +32,40 @@ class World:
         screen.fill(light_green)
 
     def spawn_humans(self, count):
-        for _ in range(count):
+        ids = []
+        for i in range(count):
             x = random.randint(0, self.width - 10)
             y = random.randint(0, self.height - 10)
             gender = random.choice(["male", "female"])
             age = random.randint(18, 80)
             if gender == "male":
-                human = GenericMale(
+                human = Human(
                     x=x,
                     y=y,
                     age=age,
+                    gender="male",
+                    color=(173, 216, 230),
+                    power=random.randint(50, 100),
                     langchain_handler=self.langchain_handler,
                     world=self,
                 )
             else:
-                human = GenericFemale(
+                human = Human(
                     x=x,
                     y=y,
                     age=age,
+                    gender="female",
+                    color=(255, 105, 180),
+                    power=random.randint(0, 50),
                     langchain_handler=self.langchain_handler,
                     world=self,
                 )
+
+            ids.append(human.id)
             lg.info(f"New human {human.id} was born")
             human.start_thread_initialize()
             self.entities.append(human)
+        return ids
 
     def spawn_cows(self, count):
         for _ in range(count):

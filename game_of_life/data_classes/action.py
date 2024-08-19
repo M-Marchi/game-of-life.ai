@@ -8,9 +8,7 @@ class ActionType(Enum):
     FIND_FOOD = 3
     SLEEP = 4
     FIND_PARTNER = 5
-    DIE = 6
     IDLE = 7
-    GO_TO_TARGET = 8
     TALK = 9
     BUILD = 10
 
@@ -24,21 +22,22 @@ class Action:
     def parse_action(self, response: str):
         # Ensure response starts with a '/'
         if response.startswith("/"):
-            # Split the response into action and explanation parts
-            action_part, explanation = response.split(" --END", 1)
-
-            # Further split the action part into command and target
-            parts = action_part[1:].split(" ", 1)
-
-            if len(parts) == 2:
-                command, target_id = parts
-            else:
-                command = parts[0]
-                target_id = None
-
             try:
+                # Split the response into action and explanation parts
+                action_part, explanation = response.split(" -END", 1)
+
+                # Further split the action part into command and target
+                parts = action_part[1:].split(" ", 1)
+
+                if len(parts) == 2:
+                    command, target_id = parts
+                else:
+                    command = parts[0]
+                    target_id = None
+
                 self.action_type = ActionType[command.upper()]
                 self.target_id = target_id
+
             except KeyError:
                 self.action_type = ActionType.IDLE
                 self.target_id = None

@@ -44,7 +44,7 @@ class AliveEntity(Entity):
     gender: GENDER_TYPE = None
     age: int = 0
     hunger: int = 0
-    attack: int = 0
+    power: int = 0
     life: int = 100
     eye_sight: int = 100
     horny: int = 0
@@ -64,12 +64,20 @@ class AliveEntity(Entity):
     def interact(self, action: Action):
         if action.action_type == ActionType.MOVE:
             self.move(action.target_id)
+        elif action.action_type == ActionType.ATTACK:
+            self.attack(action.target_id)
         elif action.action_type == ActionType.FIND_FOOD:
             self.update_movement()
+        elif action.action_type == ActionType.SLEEP:
+            self.start_thread_sleep()
         elif action.action_type == ActionType.FIND_PARTNER:
             self.update_movement()
         elif action.action_type == ActionType.IDLE:
             self.idle()
+        elif action.action_type == ActionType.TALK:
+            self.start_thread_talk(action.target_id)
+        elif action.action_type == ActionType.BUILD:
+            self.start_thread_build()
 
     def move(self, target_id):
         target = get_entity_by_id(self.world.entities, target_id)
@@ -118,13 +126,26 @@ class AliveEntity(Entity):
             self.y += self.direction[1] * dy * self.speed
 
     def idle(self):
-        NotImplementedError("idle method must be implemented in subclasses")
+        self.speed = 1
+        self.update_movement()
 
     def find_food(self, entities_dict: dict, target_distance: int):
         NotImplementedError("find_food method must be implemented in subclasses")
 
     def find_partner(self, entities_dict: dict, target_distance: int):
         NotImplementedError("find_partner method must be implemented in subclasses")
+
+    def attack(self, target_id):
+        NotImplementedError("attack method must be implemented in subclasses")
+
+    def start_thread_sleep(self):
+        NotImplementedError("sleep method must be implemented in subclasses")
+
+    def start_thread_talk(self, target_id):
+        NotImplementedError("talk method must be implemented in subclasses")
+
+    def start_thread_build(self):
+        NotImplementedError("build method must be implemented in subclasses")
 
     def update_stats(self):
         self.hunger += 1

@@ -77,7 +77,3 @@ class Cow(AliveEntity):
                         return Action(action_type=ActionType.MOVE, target_id=entity_id)
         self.speed = 2
         return Action(action_type=ActionType.FIND_PARTNER)
-
-    def idle(self):
-        self.speed = 1
-        self.update_movement()

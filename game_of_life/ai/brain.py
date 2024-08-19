@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from game_of_life.ai.langchain_handler import LangchainHandler
-from game_of_life.ai.prompt import END_THINKING_PROMPT, generate_start_thinking_prompt
+from game_of_life.ai.prompt import (
+    END_THINKING_PROMPT,
+    generate_start_thinking_prompt,
+    generate_memory_prompt,
+)
 from game_of_life.constants import HUNGER_THRESHOLD, HORNY_THRESHOLD
 from game_of_life.data_classes.action import Action, ActionType
 
@@ -59,3 +63,9 @@ class Brain:
         prompt += END_THINKING_PROMPT
 
         return prompt
+
+    def consolidate_memory(self):
+        prompt = generate_memory_prompt(self.LTM, self.STM)
+        response = self.host.langchain_handler.call_model(prompt)
+        self.LTM = response
+        self.STM = []

@@ -6,7 +6,6 @@ import numpy as np
 
 from game_of_life.ai.brain import Brain
 from game_of_life.ai.langchain_handler import LangchainHandler
-from game_of_life.ai.prompt import NEW_BACKGROUND_PROMPT
 from game_of_life.constants import (
     MALE_NAMES,
     FEMALE_NAMES,
@@ -47,6 +46,10 @@ class Human(AliveEntity):
         self.thread = threading.Thread(target=self.think)
         self.thread.start()
 
+    def start_thread_sleep(self):
+        self.thread = threading.Thread(target=self.sleep)
+        self.thread.start()
+
     def initialize(self):
 
         # Initialize Action
@@ -66,7 +69,6 @@ class Human(AliveEntity):
         self._initialize_long_term_memory()
 
     def think(self) -> Action:
-        lg.debug(f"Human {self.id} is thinking")
         # Process information
         self.brain.process()
         return self.action
@@ -83,21 +85,20 @@ class Human(AliveEntity):
         self.IQ = int(np.random.normal(100, 15))
 
     def _generate_background(self):
-        prompt = NEW_BACKGROUND_PROMPT.format(
-            name=self.name,
-            IQ=self.IQ,
-            gender=self.gender,
-            attack=self.attack,
-            age=self.age,
-        )
-        response = self.langchain_handler.call_model(prompt)
-        self.background = get_dictionary_from_response(response)
+        self.background = {
+            "name": self.name,
+            "IQ": self.IQ,
+            "gender": self.gender,
+            "attack": self.power,
+            "age": self.age,
+        }
 
     def _initialize_long_term_memory(self):
         LTM = {
             "background": self.background,
             "friends": [],
             "enemies": [],
+            "important_memories": [],
         }
         self.brain.LTM = LTM
 
@@ -108,6 +109,7 @@ class Human(AliveEntity):
                 if distance < 2:
                     lg.info(f"Cow {self.id} is eating")
                     self.hunger = 0
+                    self.brain.STM.append(self.action.explanation)
                     return Action(action_type=ActionType.IDLE)
                 elif distance < self.eye_sight:
                     if target_distance > distance:
@@ -123,7 +125,12 @@ class Human(AliveEntity):
             if issubclass(entity, Human) and entity.gender != self.gender:
                 if distance < 2:
                     self.horny = 0
-                    self.world.spawn_humans(1)
+                    entity.horny = 0
+                    baby_id = self.gave_birth()
+                    child_id = self.world.spawn_humans(1)
+                    self.brain.STM.append(
+                        f"I found a partner {entity_id} and gave birth to {child_id} because: {self.action.explanation}"
+                    )
                     return Action(action_type=ActionType.IDLE)
                 elif distance < self.eye_sight:
                     if target_distance > distance:
@@ -133,32 +140,9 @@ class Human(AliveEntity):
         self.speed = 2
         return Action(action_type=ActionType.FIND_PARTNER)
 
+    def sleep(self):
+        self.brain.consolidate_memory()
 
-class GenericMale(Human):
-    def __init__(self, x, y, age, langchain_handler, world):
-        super().__init__(
-            x=x,
-            y=y,
-            age=age,
-            langchain_handler=langchain_handler,
-            world=world,
-        )
-        self.gender = "male"
-        # Lightblue color
-        self.color = (173, 216, 230)
-        self.attack = random.randint(50, 100)
-
-
-class GenericFemale(Human):
-    def __init__(self, x, y, age, langchain_handler, world):
-        super().__init__(
-            x=x,
-            y=y,
-            age=age,
-            langchain_handler=langchain_handler,
-            world=world,
-        )
-        self.gender = "female"
-        # Pink color
-        self.color = (255, 192, 203)
-        self.attack = random.randint(0, 50)
+    def gave_birth(self):
+        child_id = self.world.spawn_humans(1)
+        return child_id[0]
