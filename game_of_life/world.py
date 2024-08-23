@@ -6,6 +6,7 @@ from game_of_life.ai.langchain_handler import LangchainHandler
 from game_of_life.constants import (
     MODEL_NAME,
 )
+from game_of_life.data_classes.action import ActionType
 from game_of_life.data_classes.animal import Cow
 from game_of_life.data_classes.human import Human
 from game_of_life.data_classes.world_entity import Tree, Lake
@@ -81,7 +82,8 @@ class World:
             if isinstance(entity, Human):
                 if entity.thread is None or not entity.thread.is_alive():
                     entity.start_thread_think()
-                    entity.interact(entity.action)
+
+                entity.interact(entity.action)
                 entity.update_stats()
 
     def update_cow(self):

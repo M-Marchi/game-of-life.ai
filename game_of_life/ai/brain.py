@@ -36,7 +36,10 @@ class Brain:
 
         if self.host.action.action_type == ActionType.IDLE:
             self.prompt = self._build_prompt(near_entities)
-            response = self.host.langchain_handler.call_model(self.prompt, human=self.host)
+            self.host.action.action_type = ActionType.THINKING
+            response = self.host.langchain_handler.call_model(
+                self.prompt, human=self.host
+            )
             self.host.action.parse_action(response)
         elif self.host.action.action_type == ActionType.FIND_FOOD:
             self.host.action = self.host.find_food(near_entities, target_distance)

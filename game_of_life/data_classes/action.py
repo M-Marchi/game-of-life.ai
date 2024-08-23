@@ -11,6 +11,7 @@ class ActionType(Enum):
     IDLE = 7
     TALK = 9
     BUILD = 10
+    THINKING = 11
 
 
 @dataclass

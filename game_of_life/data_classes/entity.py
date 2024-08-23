@@ -64,6 +64,22 @@ class AliveEntity(Entity):
     def interact(self, action: Action):
         if action.action_type == ActionType.MOVE:
             self.move(action.target_id)
+            target = get_entity_by_id(self.world.entities, action.target_id)
+            near_entities = self.get_nearby_entities()
+            distance = near_entities.get(action.target_id)
+            if distance and self.__class__.__name__ == "Human" and distance <= 2:
+                if target.__class__.__name__ == self.__class__.__name__:
+                    self.action.action_type = ActionType.FIND_PARTNER
+                elif (
+                    target.__class__.__name__ == "Cow"
+                    and self.__class__.__name__ == "Human"
+                ):
+                    self.action.action_type = ActionType.FIND_FOOD
+                elif (
+                    target.__class__.__name__ == "Tree"
+                    and self.__class__.__name__ == "Cow"
+                ):
+                    self.action.action_type = ActionType.FIND_FOOD
         elif action.action_type == ActionType.ATTACK:
             self.attack(action.target_id)
         elif action.action_type == ActionType.FIND_FOOD:
@@ -138,13 +154,13 @@ class AliveEntity(Entity):
     def attack(self, target_id):
         NotImplementedError("attack method must be implemented in subclasses")
 
-    def start_thread_sleep(self):
+    def sleep(self):
         NotImplementedError("sleep method must be implemented in subclasses")
 
-    def start_thread_talk(self, target_id):
+    def talk(self, target_id):
         NotImplementedError("talk method must be implemented in subclasses")
 
-    def start_thread_build(self):
+    def build(self):
         NotImplementedError("build method must be implemented in subclasses")
 
     def update_stats(self):

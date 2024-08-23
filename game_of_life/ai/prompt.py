@@ -27,6 +27,7 @@ def generate_memory_prompt(LTM: dict, STM: list):
      insert the most relevant of these strings into the dictionary "LTM" which represents long-term memory: {LTM}.
     """
 
+
 def generate_build_prompt():
     return f"""You have decided to build something. 
     Describe the object you want to build using pygame command.
@@ -36,4 +37,3 @@ def generate_build_prompt():
     'EXPLANATION': 'I am building a white rectangle at my current position'
     }
     """
-

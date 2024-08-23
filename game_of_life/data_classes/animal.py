@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import pygame
 
-from game_of_life.constants import HUNGER_THRESHOLD, HORNY_THRESHOLD
+from game_of_life.constants import HUNGER_THRESHOLD, HORNY_THRESHOLD, ENTITY_DIMENSION
 from game_of_life.data_classes.action import Action, ActionType
 from game_of_life.data_classes.entity import AliveEntity, get_entity_by_id
 from game_of_life.data_classes.world_entity import Tree
@@ -19,7 +19,11 @@ class Cow(AliveEntity):
 
     def draw(self, screen):
         # Draw the white body of the cow as a rectangle
-        pygame.draw.rect(screen, (255, 255, 255), pygame.Rect(self.x, self.y, 5, 5))
+        pygame.draw.rect(
+            screen,
+            (255, 255, 255),
+            pygame.Rect(self.x, self.y, ENTITY_DIMENSION, ENTITY_DIMENSION),
+        )
 
         # # Draw a circle around to simulate eyesight
         # pygame.draw.circle(

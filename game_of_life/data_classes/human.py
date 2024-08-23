@@ -10,6 +10,7 @@ from game_of_life.ai.prompt import generate_build_prompt
 from game_of_life.constants import (
     MALE_NAMES,
     FEMALE_NAMES,
+    ENTITY_DIMENSION,
 )
 from game_of_life.data_classes.action import Action, ActionType
 from game_of_life.data_classes.animal import Cow
@@ -32,7 +33,11 @@ class Human(AliveEntity):
     thread: threading.Thread = field(init=False, default=None)
 
     def draw(self, screen):
-        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 5, 5))
+        pygame.draw.rect(
+            screen,
+            self.color,
+            pygame.Rect(self.x, self.y, ENTITY_DIMENSION, ENTITY_DIMENSION),
+        )
 
         # Draw name on top of the human
         font = pygame.font.Font(None, 11)
@@ -55,11 +60,9 @@ class Human(AliveEntity):
         self.thread = threading.Thread(target=self.build)
         self.thread.start()
 
-
     def start_thread_talk(self, target_id):
         self.thread = threading.Thread(target=self.talk, args=(target_id,))
         self.thread.start()
-
 
     def initialize(self):
 
@@ -169,7 +172,11 @@ class Human(AliveEntity):
 
     def talk(self, target_id):
         target = get_entity_by_id(self.world.entities, target_id)
-        if isinstance(target, Human) and target.thread is None or not target.thread.is_alive():
+        if (
+            isinstance(target, Human)
+            and target.thread is None
+            or not target.thread.is_alive()
+        ):
             lg.info(f"Human {self.id} is talking to {target_id}")
             self.brain.STM.append(self.action.explanation)
             target.brain.STM.append("I was talked to by human {self.id}")
@@ -177,7 +184,3 @@ class Human(AliveEntity):
         else:
             lg.error(f"Target {target_id} not found or busy")
             self.action = Action(action_type=ActionType.IDLE)
-
-
-
-

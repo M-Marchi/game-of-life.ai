@@ -6,8 +6,9 @@ PROJECT_DIR = PARENT_DIR.parent
 STATIC_DIR = PROJECT_DIR / "static"
 
 # Simulation parameters
-HUNGER_THRESHOLD = 10000
-HORNY_THRESHOLD = 100000
+HUNGER_THRESHOLD = 1000
+HORNY_THRESHOLD = 10000
+ENTITY_DIMENSION = 10
 
 MODEL_NAME = "gemma2:2b"
 
@@ -96,5 +97,3 @@ FEMALE_NAMES = [
     "Nicole",
     "Samantha",
 ]
-
-
