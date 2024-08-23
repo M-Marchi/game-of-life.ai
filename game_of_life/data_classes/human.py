@@ -120,7 +120,7 @@ class Human(AliveEntity):
         for entity_id, distance in entities_dict.items():
             entity = get_entity_by_id(self.world.entities, entity_id)
             if isinstance(entity, Cow):
-                if distance < 2:
+                if distance < 10:
                     lg.info(f"Human {self.id} is eating")
                     self.hunger = 0
                     self.brain.STM.append(self.action.explanation)
@@ -137,7 +137,7 @@ class Human(AliveEntity):
         for entity_id, distance in entities_dict.items():
             entity = get_entity_by_id(self.world.entities, entity_id)
             if issubclass(entity.__class__, Human) and entity.gender != self.gender:
-                if distance < 2:
+                if distance < 10:
                     self.horny = 0
                     entity.horny = 0
                     baby_id = self.gave_birth()

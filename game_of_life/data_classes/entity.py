@@ -67,7 +67,7 @@ class AliveEntity(Entity):
             target = get_entity_by_id(self.world.entities, action.target_id)
             near_entities = self.get_nearby_entities()
             distance = near_entities.get(action.target_id)
-            if distance and self.__class__.__name__ == "Human" and distance <= 2:
+            if distance and self.__class__.__name__ == "Human" and distance <= 10:
                 if target.__class__.__name__ == self.__class__.__name__:
                     self.action.action_type = ActionType.FIND_PARTNER
                 elif (

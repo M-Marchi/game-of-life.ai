@@ -54,7 +54,7 @@ class Cow(AliveEntity):
         for entity_id, distance in entities_dict.items():
             entity = get_entity_by_id(self.world.entities, entity_id)
             if isinstance(entity, Tree):
-                if distance < 2:
+                if distance < 10:
                     lg.info(f"Cow {self.id} is eating")
                     self.hunger = 0
                     return Action(action_type=ActionType.IDLE)
@@ -70,7 +70,7 @@ class Cow(AliveEntity):
         for entity_id, distance in entities_dict.items():
             entity = get_entity_by_id(self.world.entities, entity_id)
             if isinstance(entity, Cow) and entity.gender != self.gender:
-                if distance < 2:
+                if distance < 10:
                     self.horny = 0
                     self.world.spawn_cows(1)
                     return Action(action_type=ActionType.IDLE)

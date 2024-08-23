@@ -17,6 +17,7 @@ class LangchainHandler:
     def call_model(self, prompt: str, human=None) -> str:
         chain = self.model
         lg.debug(f"{human.name} started the chain")
+        lg.debug(f"{human.name} prompt: {prompt}")
         response = chain.invoke(prompt)
         lg.debug(f"{human.name} response: {response}")
         return response
