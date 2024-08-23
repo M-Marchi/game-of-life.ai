@@ -6,6 +6,7 @@ import numpy as np
 
 from game_of_life.ai.brain import Brain
 from game_of_life.ai.langchain_handler import LangchainHandler
+from game_of_life.ai.prompt import generate_build_prompt
 from game_of_life.constants import (
     MALE_NAMES,
     FEMALE_NAMES,
@@ -31,7 +32,7 @@ class Human(AliveEntity):
     thread: threading.Thread = field(init=False, default=None)
 
     def draw(self, screen):
-        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 2, 2))
+        pygame.draw.rect(screen, self.color, pygame.Rect(self.x, self.y, 5, 5))
 
         # Draw name on top of the human
         font = pygame.font.Font(None, 11)
@@ -49,6 +50,16 @@ class Human(AliveEntity):
     def start_thread_sleep(self):
         self.thread = threading.Thread(target=self.sleep)
         self.thread.start()
+
+    def start_thread_build(self):
+        self.thread = threading.Thread(target=self.build)
+        self.thread.start()
+
+
+    def start_thread_talk(self, target_id):
+        self.thread = threading.Thread(target=self.talk, args=(target_id,))
+        self.thread.start()
+
 
     def initialize(self):
 
@@ -107,7 +118,7 @@ class Human(AliveEntity):
             entity = get_entity_by_id(self.world.entities, entity_id)
             if isinstance(entity, Cow):
                 if distance < 2:
-                    lg.info(f"Cow {self.id} is eating")
+                    lg.info(f"Human {self.id} is eating")
                     self.hunger = 0
                     self.brain.STM.append(self.action.explanation)
                     return Action(action_type=ActionType.IDLE)
@@ -122,7 +133,7 @@ class Human(AliveEntity):
     def find_partner(self, entities_dict, target_distance) -> Action:
         for entity_id, distance in entities_dict.items():
             entity = get_entity_by_id(self.world.entities, entity_id)
-            if issubclass(entity, Human) and entity.gender != self.gender:
+            if issubclass(entity.__class__, Human) and entity.gender != self.gender:
                 if distance < 2:
                     self.horny = 0
                     entity.horny = 0
@@ -146,3 +157,27 @@ class Human(AliveEntity):
     def gave_birth(self):
         child_id = self.world.spawn_humans(1)
         return child_id[0]
+
+    def build(self):
+        prompt = generate_build_prompt()
+        response = self.langchain_handler.call_model(prompt, human=self)
+        response_dict = get_dictionary_from_response(response)
+        code = response_dict["CODE"]
+        self.world.buildings.append(code)
+        self.brain.STM.append(response_dict["EXPLANATION"])
+        self.action = Action(action_type=ActionType.IDLE)
+
+    def talk(self, target_id):
+        target = get_entity_by_id(self.world.entities, target_id)
+        if isinstance(target, Human) and target.thread is None or not target.thread.is_alive():
+            lg.info(f"Human {self.id} is talking to {target_id}")
+            self.brain.STM.append(self.action.explanation)
+            target.brain.STM.append("I was talked to by human {self.id}")
+            self.action = Action(action_type=ActionType.IDLE)
+        else:
+            lg.error(f"Target {target_id} not found or busy")
+            self.action = Action(action_type=ActionType.IDLE)
+
+
+
+

@@ -16,7 +16,7 @@ lg.success("Game of Life started")
 pygame.init()
 
 # Set up the game window
-screen_width, screen_height = 1600, 800
+screen_width, screen_height = 800, 400
 screen = pygame.display.set_mode((screen_width, screen_height))
 pygame.display.set_caption("Game of Life")
 
@@ -31,7 +31,7 @@ world = World(
 # Spawn entities
 world.spawn_lakes(3)
 world.spawn_trees(50)
-world.spawn_humans(2)
+world.spawn_humans(3)
 world.spawn_cows(10)
 
 # Define colors

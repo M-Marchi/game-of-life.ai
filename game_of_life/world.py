@@ -20,12 +20,12 @@ class World:
     zoom_level: float = 1.0
     offset_x: int = 0
     offset_y: int = 0
-    entities: list = field(init=False)
+    entities: list = field(default_factory=list)
+    buildings: list = field(default_factory=list)
     langchain_handler: LangchainHandler = field(init=False)
 
     def __post_init__(self):
         self.langchain_handler = LangchainHandler(model_name=MODEL_NAME)
-        self.entities = []
 
     def draw_background(self, screen):
         light_green = (51, 204, 51)  # Light green color
@@ -109,6 +109,12 @@ class World:
         self.draw_background(screen)
         for entity in self.entities:
             entity.draw(screen)
+
+        for building in self.buildings:
+            try:
+                exec(building)
+            except Exception as e:
+                lg.error(f"Error while drawing building: {building}")
 
     def add_entity(self, entity):
         self.entities.append(entity)

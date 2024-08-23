@@ -1,4 +1,3 @@
-from imaplib import Literal
 from pathlib import Path
 
 
@@ -34,6 +33,25 @@ MALE_NAMES = [
     "Paul",
     "Andrew",
     "Joshua",
+    "Kevin",
+    "Brian",
+    "George",
+    "Edward",
+    "Ronald",
+    "Timothy",
+    "Jason",
+    "Jeffrey",
+    "Ryan",
+    "Jacob",
+    "Gary",
+    "Nicholas",
+    "Eric",
+    "Jonathan",
+    "Stephen",
+    "Larry",
+    "Justin",
+    "Scott",
+    "Brandon",
 ]
 
 FEMALE_NAMES = [
@@ -57,4 +75,26 @@ FEMALE_NAMES = [
     "Kimberly",
     "Emily",
     "Donna",
+    "Michelle",
+    "Carol",
+    "Amanda",
+    "Melissa",
+    "Deborah",
+    "Stephanie",
+    "Rebecca",
+    "Sharon",
+    "Laura",
+    "Cynthia",
+    "Kathleen",
+    "Amy",
+    "Shirley",
+    "Angela",
+    "Helen",
+    "Anna",
+    "Brenda",
+    "Pamela",
+    "Nicole",
+    "Samantha",
 ]
+
+

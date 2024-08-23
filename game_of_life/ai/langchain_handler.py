@@ -14,9 +14,9 @@ class LangchainHandler:
     def __post_init__(self):
         self.model = OllamaLLM(model=self.model_name)
 
-    def call_model(self, prompt: str) -> str:
+    def call_model(self, prompt: str, human=None) -> str:
         chain = self.model
-        lg.debug("Started the chain")
+        lg.debug(f"{human.name} started the chain")
         response = chain.invoke(prompt)
-        lg.debug(f"Response: {response}")
+        lg.debug(f"{human.name} response: {response}")
         return response

@@ -19,7 +19,7 @@ class Cow(AliveEntity):
 
     def draw(self, screen):
         # Draw the white body of the cow as a rectangle
-        pygame.draw.rect(screen, (255, 255, 255), pygame.Rect(self.x, self.y, 2, 2))
+        pygame.draw.rect(screen, (255, 255, 255), pygame.Rect(self.x, self.y, 5, 5))
 
         # # Draw a circle around to simulate eyesight
         # pygame.draw.circle(
