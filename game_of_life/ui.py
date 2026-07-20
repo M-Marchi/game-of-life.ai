@@ -60,23 +60,19 @@ class SimulationUI:
             pygame.draw.circle(self.screen, color, (x, y), 7)
         elif entity.kind == EntityKind.BUILDING:
             pygame.draw.rect(self.screen, color, (x - 10, y - 10, 22, 22))
+            if entity.beauty:
+                accent = self._hue_color(entity.appearance_hue, saturation=70, value=95)
+                pygame.draw.rect(self.screen, accent, (x - 7, y - 6, 5, 6), 2)
+                pygame.draw.rect(self.screen, accent, (x + 4, y - 6, 5, 6), 2)
+                if entity.beauty >= 40:
+                    pygame.draw.circle(self.screen, accent, (x, y + 8), 3)
             pygame.draw.polygon(
                 self.screen, (110, 50, 35), ((x - 13, y - 10), (x, y - 22), (x + 15, y - 10))
             )
+        elif entity.kind == EntityKind.HUMAN:
+            self._draw_human(entity, x, y)
         else:
             pygame.draw.circle(self.screen, color, (x, y), 6)
-            if entity.kind == EntityKind.HUMAN:
-                self._text(entity.name, x - 12, y - 18, size=13)
-                if entity.faction_id:
-                    pygame.draw.circle(
-                        self.screen, self._faction_color(entity.faction_id), (x, y), 9, 2
-                    )
-                if entity.thinking:
-                    self._text("...", x - 5, y + 7, size=15, color=(120, 210, 255))
-                elif entity.state == AgentState.SLEEPING:
-                    self._text("zZ", x - 5, y + 7, size=15, color=(170, 190, 255))
-                elif entity.state == AgentState.DREAMING:
-                    self._text("*", x - 2, y + 7, size=18, color=(205, 150, 255))
         if entity.id == self.selected_id:
             pygame.draw.circle(self.screen, (255, 220, 40), (x, y), 12, 2)
 
@@ -97,7 +93,7 @@ class SimulationUI:
             72,
         )
         self._text(
-            f"Fazioni {stats['factions']}   Guerre {stats['wars']}",
+            f"Fazioni {stats['factions']}   Guerre {stats['wars']}   Lavori {stats['professions']}",
             left + 16,
             90,
             size=14,
@@ -108,9 +104,16 @@ class SimulationUI:
             f"{key}:{resources.get(key, 0)}" for key in ("food", "wood", "stone", "tools")
         )
         self._text(resource_line, left + 16, 108, size=14, color=(180, 190, 170))
-        self._text("SPAZIO pausa   +/- velocità", left + 16, 128, color=(155, 165, 175))
+        self._text(
+            f"Conoscenza {stats['knowledge']}   Stress medio {stats['stress']}",
+            left + 16,
+            122,
+            size=13,
+            color=(160, 205, 220),
+        )
+        self._text("SPAZIO pausa   +/- velocità", left + 16, 140, color=(155, 165, 175))
 
-        y = 156
+        y = 166
         selected = self.simulation.state.entities.get(self.selected_id or "")
         if selected:
             self._text("AGENTE", left + 16, y, color=(100, 190, 255))
@@ -119,18 +122,22 @@ class SimulationUI:
                 f"Età {selected.age_years:.1f}  Salute {selected.health:.0f}",
                 f"Fame {selected.hunger:.0f}  Sete {selected.thirst:.0f}",
                 f"Energia {selected.energy:.0f}  Sociale {selected.social:.0f}",
-                f"Professione: {selected.profession}",
+                f"Professione: {selected.profession} ({selected.profession_satisfaction:.0f}%)",
                 f"Temperamento: {selected.temperament.archetype}",
                 f"Umore: {selected.mood}",
+                f"Coscienza {selected.self_awareness:.0f}  Crescita {selected.growth_drive:.0f}",
+                f"Fiducia {selected.confidence:.0f}  Stress {selected.stress:.0f}",
+                f"Estetica {selected.aesthetic_need:.0f}  Stile {selected.appearance_style}",
                 f"Fazione: {selected.faction_id or '-'}",
                 f"Stato: {selected.state}",
                 f"Azione: {'THINKING' if selected.thinking else selected.action.kind}",
                 f"Obiettivo: {selected.goal[:34]}",
                 f"Inventario: {selected.inventory}",
+                f"Conoscenze: {sum(selected.knowledge.values()):.1f}",
             )
             for line in details:
-                y += 22
-                self._text(line, left + 16, y)
+                y += 18
+                self._text(line, left + 16, y, size=15)
             memories = selected.short_term_memory + selected.long_term_memory
             if memories:
                 y += 30
@@ -178,6 +185,46 @@ class SimulationUI:
         return min(
             candidates, key=lambda item: item.position.distance_to(type(item.position)(x, y))
         ).id
+
+    def _draw_human(self, entity: Entity, x: int, y: int) -> None:
+        outfit = self._hue_color(entity.appearance_hue, saturation=62, value=90)
+        skin = (224, 177, 132)
+        if entity.appearance_style in {"elegant", "artistic"}:
+            pygame.draw.polygon(self.screen, outfit, ((x, y - 1), (x - 7, y + 8), (x + 7, y + 8)))
+        elif entity.appearance_style == "bold":
+            pygame.draw.rect(self.screen, outfit, (x - 7, y - 1, 14, 9), border_radius=2)
+        else:
+            pygame.draw.circle(self.screen, outfit, (x, y + 3), 7)
+        pygame.draw.circle(self.screen, skin, (x, y - 5), 4)
+        if entity.appearance_style == "scholarly":
+            pygame.draw.line(self.screen, (50, 45, 40), (x - 4, y - 5), (x + 4, y - 5), 1)
+        if entity.accessory == "hat":
+            pygame.draw.rect(self.screen, (70, 50, 35), (x - 6, y - 11, 12, 2))
+            pygame.draw.rect(self.screen, (70, 50, 35), (x - 3, y - 15, 7, 5))
+        elif entity.accessory == "ribbon":
+            pygame.draw.circle(self.screen, (245, 90, 145), (x + 5, y - 8), 2)
+        elif entity.accessory == "glasses":
+            pygame.draw.circle(self.screen, (50, 55, 65), (x - 2, y - 5), 2, 1)
+            pygame.draw.circle(self.screen, (50, 55, 65), (x + 3, y - 5), 2, 1)
+        elif entity.accessory == "scarf":
+            pygame.draw.line(self.screen, (230, 80, 70), (x - 4, y), (x + 5, y + 2), 2)
+        elif entity.accessory == "flower":
+            pygame.draw.circle(self.screen, (255, 170, 210), (x + 4, y - 9), 2)
+        self._text(entity.name, x - 12, y - 23, size=13)
+        if entity.faction_id:
+            pygame.draw.circle(self.screen, self._faction_color(entity.faction_id), (x, y), 11, 2)
+        if entity.thinking:
+            self._text("...", x - 5, y + 10, size=15, color=(120, 210, 255))
+        elif entity.state == AgentState.SLEEPING:
+            self._text("zZ", x - 5, y + 10, size=15, color=(170, 190, 255))
+        elif entity.state == AgentState.DREAMING:
+            self._text("*", x - 2, y + 10, size=18, color=(205, 150, 255))
+
+    @staticmethod
+    def _hue_color(hue: int, *, saturation: int, value: int) -> tuple[int, int, int]:
+        color = pygame.Color(0)
+        color.hsva = (hue % 360, saturation, value, 100)
+        return color.r, color.g, color.b
 
     def _settlement_resources(self) -> dict[str, int]:
         resources: dict[str, int] = {}

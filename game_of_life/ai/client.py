@@ -6,7 +6,7 @@ from typing import Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from game_of_life.config import AIConfig
 from game_of_life.models import Action, ActionType, Entity
@@ -23,6 +23,11 @@ class AgentIntent(BaseModel):
     explanation: str = Field(min_length=1, max_length=300)
     goal: str = Field(min_length=3, max_length=180)
     mood: Literal["calm", "hopeful", "curious", "proud", "afraid", "angry", "sad"]
+
+    @field_validator("target_id", mode="before")
+    @classmethod
+    def normalize_empty_target(cls, value: object) -> object:
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def require_action_arguments(self) -> AgentIntent:
@@ -43,6 +48,8 @@ class AgentIntent(BaseModel):
             ActionType.TELL_STORY,
             ActionType.TEACH,
             ActionType.FORGIVE,
+            ActionType.INSPIRE,
+            ActionType.BEAUTIFY,
         }
         if self.action in target_actions and not self.target_id:
             raise ValueError(f"{self.action} requires target_id")
@@ -151,20 +158,29 @@ class OllamaAIClient:
     def decide(self, entity: Entity, context: dict[str, Any]) -> AgentIntent:
         prompt = (
             "You embody one autonomous inhabitant in an emergent society sandbox. Make a bold, "
-            "character-specific decision, not the universally safest decision. Treat hunger or "
+            "character-specific decision, not the universally safest decision. The inhabitant has "
+            "an evolving identity: weigh values, stress, confidence, self-awareness, aspirations, "
+            "knowledge, appearance, vocation satisfaction, memories, and relationships. Let them "
+            "seek meaning, study, improve themselves, care for their appearance, inspire others, "
+            "or beautify their home and settlement. Treat hunger or "
             "thirst as urgent only above 75; below that, pursue personality, long-term goals, "
             "relationships, power, curiosity, creation, rivalry, or cooperation. Avoid repeating "
             "a mundane action from recent memories unless survival requires it. Aggressive and "
             "ambitious people may steal, recruit, form factions, declare war, sabotage, or attack. "
             "Empathic people may help, forgive, or make peace. Curious people explore or reflect. "
             "Creative people innovate or build. Social people talk, tell stories, teach, trade, "
-            "and recruit. Memories are evidence: let betrayals, loyalties, dreams, and past "
+            "and recruit. Teachers teach, scholars study, healers care, artists create beauty, and "
+            "dissatisfied people may pursue growth that leads toward a new vocation. Memories are "
+            "evidence: let betrayals, loyalties, dreams, and past "
             "achievements influence the choice. Set a concise persistent goal and current mood. "
             "Never invent entity IDs. Targeted actions MOVE, DRINK, GATHER, "
             "ATTACK, TALK, MATE, TRADE, HELP, STEAL, RECRUIT, DECLARE_WAR, MAKE_PEACE, and "
-            "SABOTAGE, TELL_STORY, TEACH, and FORGIVE require a compatible target_id copied "
+            "SABOTAGE, TELL_STORY, TEACH, FORGIVE, INSPIRE, and BEAUTIFY require a compatible "
+            "target_id copied "
             "exactly from a nearby entity. FORM_FACTION, EXPLORE, INNOVATE, REFLECT, and SLEEP "
-            "do not require a target. Return only data matching the JSON schema.\n"
+            "as well as STUDY and SELF_CARE do not require a target. Return only data matching "
+            "the JSON schema. For non-targeted actions set target_id=null. The explanation must "
+            "be one complete sentence under 160 characters.\n"
             "Do not declare war on an existing rival; during a war choose attack, sabotage, help, "
             "or make_peace according to personality. Choose only from WORLD.legal_actions. "
             f"AGENT={json.dumps(_entity_context(entity), ensure_ascii=False)}\n"
@@ -226,8 +242,16 @@ class OllamaAIClient:
             "safe data-only profession, recipe, building, or bounded world rule that addresses "
             "the measured shortage. Use only wood, water, food, meat, stone, and tools. "
             "For shortages prefer a recipe or profession with explicit requirements and outputs. "
-            "For personal innovations, reflect the proposer's goal and temperament while keeping "
-            "the result useful to the simulated economy. "
+            "A profession may instead improve human life using effects between 0.1 and 10: "
+            "knowledge_gain, beauty_gain, health_gain, social_gain, confidence_gain, or "
+            "stress_relief. This allows original jobs "
+            "such as counselors, researchers, artists, teachers, gardeners, or mediators. "
+            "For such a social profession set outputs={} and put those gains only in effects; "
+            "outputs is exclusively for physical resources such as food or tools. "
+            "Use requirements={} for counselors, teachers, mediators, and other services that do "
+            "not physically consume materials. "
+            "For personal innovations, reflect the proposer's goal, values, knowledge, and "
+            "temperament while keeping the role useful to society. "
             "World rule effects may only be food_regeneration, wood_regeneration, "
             "stone_regeneration, hunger_rate_multiplier, or thirst_rate_multiplier. "
             "Never output Python or instructions. Return only the requested JSON schema.\n"
@@ -261,7 +285,11 @@ class OllamaAIClient:
                                 "The validator rejected that proposal. Correct it without "
                                 "inventing new fields or effects. Profession and recipe rules "
                                 "must use outputs; "
-                                "effects should be empty unless category is world_rule. "
+                                "Physical outputs may only contain wood, water, food, meat, stone, "
+                                "or tools. Put knowledge_gain, beauty_gain, health_gain, "
+                                "social_gain, confidence_gain, and stress_relief in effects, "
+                                "never in outputs. "
+                                "Effects must match the allowed category-specific effect list. "
                                 f"VALIDATION_ERROR={exc}"
                             ),
                         },
@@ -318,6 +346,7 @@ def _entity_context(entity: Entity) -> dict[str, Any]:
             "social": round(entity.social, 1),
         },
         "profession": entity.profession,
+        "profession_satisfaction": round(entity.profession_satisfaction, 1),
         "temperament": {
             "archetype": entity.temperament.archetype,
             "aggression": round(entity.temperament.aggression, 2),
@@ -327,12 +356,27 @@ def _entity_context(entity: Entity) -> dict[str, Any]:
             "empathy": round(entity.temperament.empathy, 2),
             "creativity": round(entity.temperament.creativity, 2),
             "risk_tolerance": round(entity.temperament.risk_tolerance, 2),
+            "resilience": round(entity.temperament.resilience, 2),
+            "discipline": round(entity.temperament.discipline, 2),
         },
         "mood": entity.mood,
         "goal": entity.goal,
+        "aspirations": entity.aspirations[-5:],
+        "identity": {
+            "values": {key: round(value, 1) for key, value in entity.values.items()},
+            "self_awareness": round(entity.self_awareness, 1),
+            "growth_drive": round(entity.growth_drive, 1),
+            "confidence": round(entity.confidence, 1),
+            "stress": round(entity.stress, 1),
+            "aesthetic_need": round(entity.aesthetic_need, 1),
+            "appearance_style": entity.appearance_style,
+            "accessory": entity.accessory,
+        },
         "faction_id": entity.faction_id,
         "reputation": round(entity.reputation, 1),
         "inventory": entity.inventory,
+        "skills": {key: round(value, 2) for key, value in entity.skills.items()},
+        "knowledge": {key: round(value, 2) for key, value in entity.knowledge.items()},
         "short_term_memory": [
             {
                 "id": memory.id,

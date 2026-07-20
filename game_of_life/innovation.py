@@ -51,15 +51,17 @@ class InnovationManager:
 
         self._monitor(simulation)
         if simulation.state.tick and simulation.state.tick % self.interval_ticks == 0:
-            shortage = self._largest_shortage(simulation)
-            if shortage:
+            societal_need = self._largest_need(simulation)
+            if societal_need:
                 self.worker.submit_rule(
                     {
                         "tick": simulation.state.tick,
                         "seed": simulation.state.seed,
                         "population": len(simulation.state.living(EntityKind.HUMAN)),
-                        "shortage": shortage,
+                        "shortage": societal_need,
                         "resources": self._resource_totals(simulation),
+                        "human_development": self._human_development(simulation),
+                        "professions": self._profession_counts(simulation),
                         "existing_rules": sorted(self.registry.active),
                     }
                 )
@@ -77,6 +79,9 @@ class InnovationManager:
                 "proposer_goal": actor.goal,
                 "proposer_profession": actor.profession,
                 "proposer_temperament": actor.temperament.archetype,
+                "proposer_values": actor.values,
+                "proposer_knowledge": actor.knowledge,
+                "proposer_self_awareness": round(actor.self_awareness, 1),
                 "opportunity": (
                     "Create a surprising but useful change consistent with the proposer."
                 ),
@@ -132,20 +137,42 @@ class InnovationManager:
         candidate = simulation.state.entities.get(preferred_id or "")
         if candidate and (not candidate.alive or candidate.kind != EntityKind.HUMAN):
             candidate = None
-        candidate = candidate or next(
-            (human for human in humans if human.profession == Profession.UNASSIGNED), None
-        )
+        if not candidate:
+            effects = proposal.effects
+            candidate = max(
+                (human for human in humans if human.profession == Profession.UNASSIGNED),
+                key=lambda human: (
+                    human.temperament.curiosity * effects.get("knowledge_gain", 0)
+                    + human.temperament.creativity * effects.get("beauty_gain", 0)
+                    + human.temperament.empathy * effects.get("health_gain", 0)
+                    + human.temperament.sociability * effects.get("social_gain", 0)
+                    + human.temperament.ambition * effects.get("confidence_gain", 0)
+                    + human.temperament.empathy * effects.get("stress_relief", 0)
+                ),
+                default=None,
+            )
         candidate = candidate or next(
             (human for human in humans if human.profession == Profession.MERCHANT), None
         )
         if candidate:
+            previous = str(candidate.profession)
             candidate.profession = proposal.id
+            candidate.profession_satisfaction = 65
+            candidate.last_vocation_tick = simulation.state.tick
+            candidate.goal = f"master the new vocation of {proposal.name}"
             candidate.remember(
                 f"I became a {proposal.name} to address: {proposal.activation_reason}",
                 tick=simulation.state.tick,
                 category="profession",
                 importance=0.85,
                 emotion="proud",
+            )
+            simulation.emit(
+                "vocation_changed",
+                candidate.id,
+                previous=previous,
+                profession=proposal.id,
+                reason=proposal.activation_reason,
             )
 
     @staticmethod
@@ -156,7 +183,7 @@ class InnovationManager:
                 totals[resource] = totals.get(resource, 0) + amount
         return totals
 
-    def _largest_shortage(self, simulation: Simulation) -> dict[str, float | str] | None:
+    def _largest_need(self, simulation: Simulation) -> dict[str, float | str] | None:
         population = max(1, len(simulation.state.living(EntityKind.HUMAN)))
         targets = {"food": 4, "water": 2, "wood": 5, "stone": 2, "tools": 1}
         totals = self._resource_totals(simulation)
@@ -165,6 +192,42 @@ class InnovationManager:
             for resource, per_person in targets.items()
         }
         resource, ratio = min(ratios.items(), key=lambda item: item[1])
-        if ratio >= 0.75:
+        if ratio < 0.75:
+            return {"type": "resource", "resource": resource, "coverage_ratio": round(ratio, 3)}
+        development = self._human_development(simulation)
+        needs = {
+            "meaningful_work": development["unassigned_ratio"],
+            "mental_health": development["average_stress"] / 100,
+            "education": max(0.0, 1 - development["average_knowledge"] / 4),
+            "beauty": development["average_aesthetic_need"] / 100,
+            "health": max(0.0, 1 - development["average_health"] / 100),
+        }
+        need, severity = max(needs.items(), key=lambda item: item[1])
+        if severity < 0.3:
             return None
-        return {"resource": resource, "coverage_ratio": round(ratio, 3)}
+        return {"type": "human_development", "need": need, "severity": round(severity, 3)}
+
+    @staticmethod
+    def _human_development(simulation: Simulation) -> dict[str, float]:
+        humans = simulation.state.living(EntityKind.HUMAN)
+        population = max(1, len(humans))
+        return {
+            "average_health": round(sum(human.health for human in humans) / population, 2),
+            "average_stress": round(sum(human.stress for human in humans) / population, 2),
+            "average_knowledge": round(
+                sum(sum(human.knowledge.values()) for human in humans) / population, 2
+            ),
+            "average_aesthetic_need": round(
+                sum(human.aesthetic_need for human in humans) / population, 2
+            ),
+            "unassigned_ratio": round(
+                sum(human.profession == Profession.UNASSIGNED for human in humans) / population, 3
+            ),
+        }
+
+    @staticmethod
+    def _profession_counts(simulation: Simulation) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for human in simulation.state.living(EntityKind.HUMAN):
+            counts[str(human.profession)] = counts.get(str(human.profession), 0) + 1
+        return counts

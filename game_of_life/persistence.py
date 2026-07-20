@@ -21,7 +21,7 @@ from game_of_life.models import (
     WorldState,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class WorldStore:

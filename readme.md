@@ -14,11 +14,15 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
 - raccolta, inventari, cibo consumabile, combattimento, sonno, dialogo, commercio e costruzione;
 - memoria breve strutturata e memoria lunga selettiva, con oblio dei dettagli di routine;
 - ciclo del sonno `awake -> sleeping -> dreaming`, sogni generati da Qwen e nuovi insight/obiettivi;
-- professioni iniziali e lavoro basato sulle risorse;
-- temperamenti ereditabili, umore e obiettivi persistenti;
+- vocazioni dinamiche scelte in base a personalità, competenze, soddisfazione e bisogni collettivi;
+- lavori sociali con effetti reali: studioso, guaritore, artista, insegnante, diplomatico e guardia;
+- professioni generate da Qwen che possono produrre risorse oppure conoscenza, salute, bellezza,
+  socialità e fiducia;
+- identità individuale con valori, aspirazioni, autoconsapevolezza, crescita, fiducia e stress;
+- temperamenti ereditabili ma plastici: esperienze, traumi e relazioni li modificano nel tempo;
 - fazioni, reclutamento, guerre, successione dei leader, pace e dissoluzione dei gruppi;
 - azioni emergenti come aiutare, rubare, esplorare, innovare, sabotare, riflettere, raccontare,
-  insegnare e perdonare;
+  insegnare, studiare, ispirare, curarsi, abbellire e perdonare;
 - crisi ambientali periodiche: siccità, incendi, epidemie, raccolti e boom minerari;
 - cognizione ibrida con fallback deterministico;
 - generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
@@ -52,9 +56,16 @@ Comandi UI:
 - `+` e `-`: velocità della simulazione.
 
 Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite; durante il sonno mostrano `zZ` e
-durante i sogni `*`. L'inspector visualizza stato cognitivo, memoria breve/lunga, ultimo sogno,
-temperamento, umore, fazione, obiettivo e azione corrente. Il mondo parte con 8 umani e applica un
+durante i sogni `*`. Ogni agente ha uno sprite personale: colore, abito e accessorio cambiano quando
+decide di curare il proprio aspetto; gli artisti possono decorare visibilmente gli edifici.
+L'inspector visualizza stato cognitivo, memoria breve/lunga, ultimo sogno, conoscenza, stress,
+autoconsapevolezza, stile, temperamento, umore, vocazione e obiettivo. Il mondo parte con 8 umani e applica un
 limite di 24: le nascite umane richiedono adulti con una relazione reciproca già costruita.
+
+Le conversazioni non sono solo eventi cosmetici: trasmettono valori, aspirazioni e tratti. Aiuto,
+tradimento, violenza, creazione, studio, insegnamento e crisi ambientali modificano gradualmente
+fiducia, stress, resilienza e temperamento. Gli agenti insoddisfatti rivalutano periodicamente la
+propria vocazione; bambini e adulti senza un ruolo studiano per scoprire cosa vogliono diventare.
 
 Il ritmo della GUI è 10 tick al secondo a velocità `x1`. Un ciclo di sonno dura circa 16 secondi:
 a metà ciclo le esperienze importanti vengono consolidate, quelle banali dimenticate e Qwen produce

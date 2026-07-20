@@ -25,15 +25,18 @@ from game_of_life.models import (
 MALE_NAMES = ("James", "John", "Robert", "Michael", "David", "Daniel", "Marco", "Luca")
 FEMALE_NAMES = ("Mary", "Sarah", "Emily", "Anna", "Sofia", "Giulia", "Elena", "Marta")
 FACTION_NOUNS = ("Dawn", "Iron", "River", "Oak", "Ember", "Horizon", "Stone", "Free")
-PROFESSIONS = (
+INITIAL_PROFESSIONS = (
     Profession.GATHERER,
     Profession.FARMER,
-    Profession.RANCHER,
     Profession.BUILDER,
     Profession.CARPENTER,
-    Profession.BLACKSMITH,
-    Profession.MERCHANT,
+    Profession.UNASSIGNED,
+    Profession.UNASSIGNED,
+    Profession.UNASSIGNED,
+    Profession.UNASSIGNED,
 )
+APPEARANCE_STYLES = ("plain", "elegant", "bold", "natural", "scholarly", "artistic")
+ACCESSORIES = ("none", "hat", "ribbon", "glasses", "scarf", "flower")
 BUILTIN_RECIPES = {
     "basic_tools": {
         "id": "basic_tools",
@@ -74,7 +77,7 @@ class Simulation:
             self.spawn_resource(EntityKind.LAKE)
         for index in range(self.config.initial_humans):
             human = self.spawn_human()
-            human.profession = PROFESSIONS[index % len(PROFESSIONS)]
+            human.profession = INITIAL_PROFESSIONS[index % len(INITIAL_PROFESSIONS)]
             human.inventory["food"] = 2
             if human.profession == Profession.BUILDER:
                 human.inventory.update({"wood": 10, "stone": 3})
@@ -136,6 +139,12 @@ class Simulation:
             temperament=self._random_temperament(),
         )
         human.goal = self._initial_goal(human.temperament)
+        human.aspirations = [human.goal]
+        human.values = self._initial_values(human.temperament)
+        human.self_awareness = 25 + human.temperament.curiosity * 25
+        human.growth_drive = 30 + (human.temperament.ambition + human.temperament.curiosity) * 25
+        human.confidence = 35 + human.temperament.resilience * 25
+        human.appearance_hue = self.random.randrange(0, 360)
         human.attack += human.temperament.aggression * 4
         self.state.entities[human.id] = human
         self.emit("birth", human.id, name=human.name, kind=human.kind)
@@ -161,6 +170,8 @@ class Simulation:
         self._apply_ai_results()
         actors = sorted(self.state.living(), key=lambda entity: entity.id)
         for actor in actors:
+            if not actor.alive:
+                continue
             if actor.state != AgentState.AWAKE:
                 self._advance_sleep(actor)
                 self._update_needs(actor)
@@ -173,6 +184,7 @@ class Simulation:
             self._update_needs(actor)
         self._regenerate_resources()
         self._update_factions()
+        self._update_vocations()
         self._trigger_world_event()
         self._schedule_ai()
         if self.innovation_manager:
@@ -198,6 +210,10 @@ class Simulation:
             return self._approach_or(ActionType.ATTACK, actor, cow, 14, "I need meat")
         if actor.energy <= 22:
             return Action(ActionType.SLEEP, explanation="I am exhausted")
+        if actor.aesthetic_need >= 72 and actor.energy > 35:
+            return Action(ActionType.SELF_CARE, explanation="I want my appearance to express me")
+        if actor.growth_drive >= 82 and actor.energy > 45 and self.random.random() < 0.025:
+            return Action(ActionType.STUDY, explanation="I want to become more capable")
         if actor.reproduction_drive >= 82 and actor.reproduction_cooldown == 0:
             partner = self._nearest_partner(actor)
             if partner:
@@ -319,6 +335,14 @@ class Simulation:
             target = min(nearby, key=lambda human: sum(human.skills.values()))
             actor.decision_lock_ticks = 50
             return Action(ActionType.TEACH, target.id, explanation="I will pass on what I know")
+        if nearby and actor.confidence > 62 and temperament.sociability > 0.58:
+            target = min(nearby, key=lambda human: human.confidence)
+            actor.decision_lock_ticks = 50
+            return Action(
+                ActionType.INSPIRE,
+                target.id,
+                explanation="I will encourage them to pursue a meaningful goal",
+            )
         if actor.short_term_memory and temperament.curiosity > 0.58:
             return Action(ActionType.REFLECT, explanation="I need to understand what happened")
         if temperament.curiosity > 0.65:
@@ -333,6 +357,63 @@ class Simulation:
         dynamic = self._choose_dynamic_work(actor)
         if dynamic:
             return dynamic
+        nearby = self._nearby_humans(actor, 60)
+        if actor.profession == Profession.SCHOLAR:
+            return Action(ActionType.STUDY, explanation="Researching society and human nature")
+        if actor.profession == Profession.HEALER:
+            patient = min(nearby, key=lambda human: human.health, default=None)
+            if patient and patient.health < 95:
+                return self._approach_or(
+                    ActionType.HELP, actor, patient, 18, "Caring for someone who is hurt"
+                )
+            return Action(ActionType.STUDY, resource="healing", explanation="Studying healing")
+        if actor.profession == Profession.ARTIST:
+            building = self._nearest(
+                actor,
+                kinds={EntityKind.BUILDING},
+                predicate=lambda item: item.beauty < 75,
+            )
+            if building:
+                return self._approach_or(
+                    ActionType.BEAUTIFY, actor, building, 18, "Making this place beautiful"
+                )
+            return Action(ActionType.STUDY, resource="art", explanation="Developing my art")
+        if actor.profession == Profession.TEACHER:
+            if nearby and actor.skills:
+                student = min(nearby, key=lambda human: sum(human.skills.values()))
+                if student.growth_drive < 38:
+                    return self._approach_or(
+                        ActionType.INSPIRE,
+                        actor,
+                        student,
+                        20,
+                        "Encouraging a discouraged student",
+                    )
+                return self._approach_or(
+                    ActionType.TEACH, actor, student, 20, "Helping someone learn"
+                )
+            return Action(ActionType.STUDY, resource="education", explanation="Preparing a lesson")
+        if actor.profession == Profession.DIPLOMAT:
+            grievance = next(
+                (human for human in nearby if actor.relationships.get(human.id, 0) < 0), None
+            )
+            if grievance:
+                return self._approach_or(
+                    ActionType.FORGIVE, actor, grievance, 20, "Trying to repair a relationship"
+                )
+            if nearby:
+                return self._approach_or(
+                    ActionType.TALK, actor, nearby[0], 18, "Listening to another point of view"
+                )
+        if actor.profession == Profession.GUARD:
+            enemy = self._nearest_rival(actor)
+            if enemy:
+                return self._approach_or(
+                    ActionType.ATTACK, actor, enemy, 14, "Defending my community"
+                )
+            return Action(ActionType.EXPLORE, explanation="Patrolling the settlement")
+        if actor.profession == Profession.UNASSIGNED and actor.growth_drive > 55:
+            return Action(ActionType.STUDY, explanation="Searching for my vocation")
         if actor.profession in {Profession.GATHERER, Profession.CARPENTER}:
             if (
                 self._settlement_resource_total("wood")
@@ -514,6 +595,14 @@ class Simulation:
             self._teach(actor, target)
         elif action.kind == ActionType.FORGIVE:
             self._forgive(actor, target)
+        elif action.kind == ActionType.STUDY:
+            self._study(actor, action.resource)
+        elif action.kind == ActionType.SELF_CARE:
+            self._self_care(actor)
+        elif action.kind == ActionType.INSPIRE:
+            self._inspire(actor, target)
+        elif action.kind == ActionType.BEAUTIFY:
+            self._beautify(actor, target)
 
     def _move(self, actor: Entity, target: Entity | None) -> None:
         if not target or not target.alive:
@@ -610,6 +699,9 @@ class Simulation:
 
     def _reflect(self, actor: Entity) -> None:
         retained, forgotten = actor.consolidate_memories(self.state.tick)
+        actor.self_awareness = min(100, actor.self_awareness + 2.5)
+        actor.stress = max(0, actor.stress - 4)
+        self._evolve_goal(actor)
         actor.mood = "calm"
         actor.decision_lock_ticks = 0
         self.emit("reflection", actor.id, retained=retained, forgotten=forgotten)
@@ -634,10 +726,15 @@ class Simulation:
         )
         actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 6
         target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 8
+        target.values["community"] = min(100, target.values.get("community", 50) + 2)
+        target.self_awareness = min(100, target.self_awareness + 0.4)
         actor.decision_lock_ticks = 0
         self.emit("story_told", actor.id, target.id, memory_id=memory.id)
 
     def _teach(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
         if not self._approach_interaction(actor, target, 20, EntityKind.HUMAN):
             return
         assert target is not None
@@ -646,7 +743,15 @@ class Simulation:
             return
         skill, level = max(actor.skills.items(), key=lambda item: item[1])
         before = target.skills.get(skill, 0)
-        target.skills[skill] = before + min(0.5, max(0.1, level * 0.1))
+        target.skills[skill] = min(20, before + min(0.5, max(0.1, level * 0.1)))
+        if skill in actor.knowledge:
+            target.knowledge[skill] = min(
+                20,
+                target.knowledge.get(skill, 0) + min(0.35, actor.knowledge[skill] * 0.08),
+            )
+        target.growth_drive = min(100, target.growth_drive + 8)
+        target.confidence = min(100, target.confidence + 2)
+        target.values["knowledge"] = min(100, target.values.get("knowledge", 50) + 2.5)
         target.remember(
             f"{actor.name} taught me {skill}",
             tick=self.state.tick,
@@ -656,6 +761,8 @@ class Simulation:
             participants=[actor.id],
         )
         actor.reputation = min(100, actor.reputation + 1)
+        self._adapt_temperament(target, valence=1, intensity=0.3, source="learning")
+        actor.action_cooldown = 35
         actor.decision_lock_ticks = 0
         self.emit("teach", actor.id, target.id, skill=skill)
 
@@ -675,7 +782,144 @@ class Simulation:
             participants=[target.id],
         )
         actor.decision_lock_ticks = 0
+        self._adapt_temperament(actor, valence=1, intensity=0.65, source="forgiveness")
         self.emit("forgive", actor.id, target.id, previous_relationship=previous)
+
+    def _study(self, actor: Entity, requested_field: str | None = None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
+        profession_fields = {
+            Profession.HEALER: "healing",
+            Profession.ARTIST: "art",
+            Profession.DIPLOMAT: "society",
+            Profession.GUARD: "strategy",
+            Profession.BUILDER: "craft",
+            Profession.CARPENTER: "craft",
+            Profession.BLACKSMITH: "craft",
+            Profession.FARMER: "nature",
+            Profession.RANCHER: "nature",
+            Profession.SCHOLAR: "society",
+            Profession.TEACHER: "education",
+        }
+        field = requested_field or profession_fields.get(actor.profession)
+        if not field:
+            strongest_value = max(actor.values, key=actor.values.get, default="knowledge")
+            field = {
+                "beauty": "art",
+                "community": "society",
+                "achievement": "craft",
+                "power": "strategy",
+                "freedom": "nature",
+                "knowledge": "society",
+                "care": "healing",
+            }.get(strongest_value, "self_knowledge")
+        gain = 0.18 + actor.temperament.curiosity * 0.16 + actor.temperament.discipline * 0.12
+        previous = actor.knowledge.get(field, 0.0)
+        actor.knowledge[field] = min(20, previous + gain)
+        actor.skills[field] = min(20, actor.skills.get(field, 0.0) + gain * 0.45)
+        actor.self_awareness = min(100, actor.self_awareness + 0.35 + gain * 0.2)
+        actor.growth_drive = max(0, actor.growth_drive - 14)
+        actor.confidence = min(100, actor.confidence + 0.4)
+        actor.energy = max(0, actor.energy - 3)
+        actor.mood = "curious"
+        actor.action_cooldown = 28
+        actor.decision_lock_ticks = 0
+        if int(previous) < int(actor.knowledge[field]):
+            actor.remember(
+                f"I reached a new understanding of {field}",
+                tick=self.state.tick,
+                category="learning",
+                importance=0.68,
+                emotion="proud",
+            )
+            self._evolve_goal(actor)
+        self.emit("study", actor.id, field=field, gain=round(gain, 3))
+
+    def _self_care(self, actor: Entity) -> None:
+        previous_style = actor.appearance_style
+        style_scores = {
+            "elegant": actor.temperament.sociability + actor.values.get("beauty", 0) / 100,
+            "bold": actor.temperament.ambition + actor.temperament.risk_tolerance,
+            "natural": actor.temperament.empathy + actor.values.get("freedom", 0) / 100,
+            "scholarly": actor.temperament.curiosity + min(0.8, sum(actor.knowledge.values()) / 40),
+            "artistic": actor.temperament.creativity + actor.values.get("beauty", 0) / 100,
+            "plain": actor.temperament.discipline,
+        }
+        actor.appearance_style = max(style_scores, key=style_scores.get)
+        actor.accessory = ACCESSORIES[(self.state.tick + actor.memory_sequence) % len(ACCESSORIES)]
+        actor.appearance_hue = (
+            actor.appearance_hue + 37 + round(actor.temperament.creativity * 90)
+        ) % 360
+        actor.aesthetic_need = 0
+        actor.confidence = min(100, actor.confidence + 8)
+        actor.stress = max(0, actor.stress - 7)
+        actor.mood = "proud"
+        actor.decision_lock_ticks = 0
+        actor.remember(
+            f"I changed my style from {previous_style} to {actor.appearance_style}",
+            tick=self.state.tick,
+            category="identity",
+            importance=0.62,
+            emotion="proud",
+        )
+        self._adapt_temperament(actor, valence=1, intensity=0.3, source="self_care")
+        self.emit(
+            "appearance_changed",
+            actor.id,
+            style=actor.appearance_style,
+            accessory=actor.accessory,
+            hue=actor.appearance_hue,
+        )
+
+    def _inspire(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
+        if not self._approach_interaction(actor, target, 20, EntityKind.HUMAN):
+            return
+        assert target is not None
+        strongest_value = max(actor.values, key=actor.values.get, default="community")
+        target.values[strongest_value] = min(
+            100, target.values.get(strongest_value, 50) + 3 + actor.temperament.sociability * 3
+        )
+        target.confidence = min(100, target.confidence + 6 + actor.confidence * 0.03)
+        target.growth_drive = min(100, target.growth_drive + 12)
+        if actor.goal not in target.aspirations:
+            target.aspirations.append(actor.goal)
+            del target.aspirations[:-5]
+        if target.self_awareness > 45 and target.confidence > 55:
+            self._evolve_goal(target)
+        actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 4
+        target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 7
+        target.remember(
+            f"{actor.name} inspired me to value {strongest_value}",
+            tick=self.state.tick,
+            category="identity",
+            importance=0.74,
+            emotion="hopeful",
+            participants=[actor.id],
+        )
+        self._adapt_temperament(target, valence=1, intensity=0.45, source="inspiration")
+        actor.action_cooldown = 30
+        actor.decision_lock_ticks = 0
+        self.emit("inspire", actor.id, target.id, value=strongest_value, goal=target.goal)
+
+    def _beautify(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            return
+        if not self._approach_interaction(actor, target, 18, EntityKind.BUILDING):
+            return
+        assert target is not None
+        gain = 6 + actor.temperament.creativity * 8 + actor.skills.get("art", 0)
+        target.beauty = min(100, target.beauty + gain)
+        target.appearance_hue = actor.appearance_hue
+        actor.skills["art"] = actor.skills.get("art", 0) + 0.25
+        actor.confidence = min(100, actor.confidence + 2)
+        actor.growth_drive = max(0, actor.growth_drive - 5)
+        actor.action_cooldown = 45
+        actor.decision_lock_ticks = 45
+        self.emit("beautify", actor.id, target.id, beauty=round(target.beauty, 1))
 
     def _wander(self, actor: Entity) -> None:
         actor.position.x = min(
@@ -743,6 +987,8 @@ class Simulation:
             self._kill(target, actor)
 
     def _kill(self, target: Entity, killer: Entity | None = None) -> None:
+        if not target.alive:
+            return
         target.alive = False
         if killer and target.kind == EntityKind.COW:
             killer.inventory["meat"] = killer.inventory.get("meat", 0) + 8
@@ -778,9 +1024,16 @@ class Simulation:
                         emotion="afraid",
                         participants=[killer.id, target.id],
                     )
+                    self._adapt_temperament(
+                        witness, valence=-1, intensity=0.9, source="witnessed_death"
+                    )
+            self._adapt_temperament(killer, valence=-1, intensity=0.8, source="killing")
         self.emit("death", killer.id if killer else None, target.id, kind=target.kind)
 
     def _talk(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
         if target and target.kind == EntityKind.HUMAN and not self._in_range(actor, target, 18):
             self._move(actor, target)
             return
@@ -800,11 +1053,40 @@ class Simulation:
         target.relationships[actor.id] = max(
             -100, min(100, target.relationships.get(actor.id, 0) + relationship_change)
         )
+        topic = max(actor.values, key=actor.values.get, default="survival")
+        influenced_trait = max(
+            (
+                "aggression",
+                "sociability",
+                "ambition",
+                "curiosity",
+                "empathy",
+                "creativity",
+                "risk_tolerance",
+                "resilience",
+                "discipline",
+            ),
+            key=lambda trait: getattr(actor.temperament, trait),
+        )
         if argumentative:
             actor.mood = target.mood = "angry"
+            self._adapt_temperament(actor, valence=-1, intensity=0.4, source="argument")
+            self._adapt_temperament(target, valence=-1, intensity=0.45, source="argument")
             self.emit("argument", actor.id, target.id)
-        elif compatibility > 0.75:
-            actor.mood = target.mood = "hopeful"
+        else:
+            if compatibility > 0.75:
+                actor.mood = target.mood = "hopeful"
+            influence = 0.008 + compatibility * 0.012
+            current = getattr(target.temperament, influenced_trait)
+            example = getattr(actor.temperament, influenced_trait)
+            setattr(target.temperament, influenced_trait, current + (example - current) * influence)
+            target.values[topic] = min(100, target.values.get(topic, 50) + 1.5 * compatibility)
+            target.self_awareness = min(100, target.self_awareness + 0.15)
+            if actor.relationships[target.id] > 35 and actor.goal not in target.aspirations:
+                target.aspirations.append(actor.goal)
+                del target.aspirations[:-5]
+            self._adapt_temperament(actor, valence=1, intensity=0.18, source="conversation")
+            self._adapt_temperament(target, valence=1, intensity=0.22, source="conversation")
         emotion = "angry" if argumentative else "neutral"
         importance = 0.72 if argumentative else 0.45
         actor.remember(
@@ -824,7 +1106,15 @@ class Simulation:
             participants=[actor.id],
         )
         actor.decision_lock_ticks = 0
-        self.emit("talk", actor.id, target.id, relationship_change=relationship_change)
+        actor.action_cooldown = 30
+        self.emit(
+            "talk",
+            actor.id,
+            target.id,
+            relationship_change=relationship_change,
+            topic=topic,
+            influenced_trait=influenced_trait,
+        )
 
     def _mate(self, actor: Entity, target: Entity | None) -> None:
         if target and target.alive and not self._in_range(actor, target, 13):
@@ -858,6 +1148,18 @@ class Simulation:
             child.profession = Profession.UNASSIGNED
             child.temperament = self._inherit_temperament(actor, target)
             child.goal = self._initial_goal(child.temperament)
+            child.aspirations = [child.goal]
+            child.values = {
+                key: max(
+                    0,
+                    min(
+                        100,
+                        (actor.values.get(key, 50) + target.values.get(key, 50)) / 2
+                        + self.random.uniform(-8, 8),
+                    ),
+                )
+                for key in set(actor.values) | set(target.values)
+            }
             child.faction_id = actor.faction_id if actor.faction_id == target.faction_id else None
             if child.faction_id:
                 self.state.factions[child.faction_id].members.append(child.id)
@@ -903,6 +1205,8 @@ class Simulation:
             name=building_type.title(),
             building_type=building_type,
             owner_id=actor.id,
+            beauty=8 + actor.temperament.creativity * 12,
+            appearance_hue=actor.appearance_hue,
         )
         self.state.entities[building.id] = building
         actor.remember(
@@ -913,6 +1217,7 @@ class Simulation:
             emotion="proud",
             participants=[building.id],
         )
+        self._adapt_temperament(actor, valence=1, intensity=0.55, source="creation")
         resident_id = None
         if building_type == "house":
             homeless = [
@@ -949,11 +1254,46 @@ class Simulation:
             actor.inventory[resource] -= amount
         for resource, amount in rule.get("outputs", {}).items():
             actor.inventory[resource] = actor.inventory.get(resource, 0) + amount
+        effects = rule.get("effects", {}) if rule.get("category") == "profession" else {}
+        effect_amounts = {key: min(10.0, float(value)) for key, value in effects.items()}
+        if effect_amounts.get("knowledge_gain"):
+            actor.knowledge[rule["id"]] = (
+                actor.knowledge.get(rule["id"], 0) + effect_amounts["knowledge_gain"]
+            )
+            actor.self_awareness = min(
+                100, actor.self_awareness + effect_amounts["knowledge_gain"] * 0.2
+            )
+        if effect_amounts.get("beauty_gain"):
+            actor.aesthetic_need = max(0, actor.aesthetic_need - effect_amounts["beauty_gain"])
+            building = self._nearest(actor, kinds={EntityKind.BUILDING})
+            if building:
+                building.beauty = min(100, building.beauty + effect_amounts["beauty_gain"])
+        if effect_amounts.get("health_gain"):
+            patient = min(
+                self._nearby_humans(actor, 30), key=lambda item: item.health, default=actor
+            )
+            patient.health = min(100, patient.health + effect_amounts["health_gain"])
+        if effect_amounts.get("social_gain"):
+            actor.social = min(100, actor.social + effect_amounts["social_gain"])
+            for neighbor in self._nearby_humans(actor, 25):
+                neighbor.social = min(100, neighbor.social + effect_amounts["social_gain"] * 0.5)
+        if effect_amounts.get("confidence_gain"):
+            actor.confidence = min(100, actor.confidence + effect_amounts["confidence_gain"])
+        if effect_amounts.get("stress_relief"):
+            actor.stress = max(0, actor.stress - effect_amounts["stress_relief"])
+            for neighbor in self._nearby_humans(actor, 25):
+                neighbor.stress = max(0, neighbor.stress - effect_amounts["stress_relief"] * 0.5)
         actor.skills[rule_id or "innovation"] = actor.skills.get(rule_id or "innovation", 0) + 0.2
         duration = max(1, min(100, int(rule.get("duration_ticks", 20))))
         actor.action_cooldown = duration
         actor.decision_lock_ticks = duration
-        self.emit("work", actor.id, rule_id=rule_id, outputs=rule.get("outputs", {}))
+        self.emit(
+            "work",
+            actor.id,
+            rule_id=rule_id,
+            outputs=rule.get("outputs", {}),
+            effects=effect_amounts,
+        )
 
     def _trade(self, actor: Entity, target: Entity | None) -> None:
         if actor.action_cooldown:
@@ -973,9 +1313,33 @@ class Simulation:
         self.emit("trade", actor.id, target.id, resource=surplus, amount=1)
 
     def _help(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
         if not self._approach_interaction(actor, target, 18, EntityKind.HUMAN):
             return
         assert target is not None
+        if actor.profession == Profession.HEALER and target.health < 100:
+            healing = 3 + actor.skills.get("healing", 0) * 0.3
+            target.health = min(100, target.health + healing)
+            actor.skills["healing"] = actor.skills.get("healing", 0) + 0.2
+            actor.knowledge["healing"] = actor.knowledge.get("healing", 0) + 0.08
+            actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 5
+            target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 8
+            target.remember(
+                f"{actor.name} treated my wounds",
+                tick=self.state.tick,
+                category="care",
+                importance=0.72,
+                emotion="hopeful",
+                participants=[actor.id],
+            )
+            self._adapt_temperament(actor, valence=1, intensity=0.35, source="healing")
+            self._adapt_temperament(target, valence=1, intensity=0.45, source="healed")
+            actor.action_cooldown = 24
+            actor.decision_lock_ticks = 0
+            self.emit("heal", actor.id, target.id, amount=round(healing, 2))
+            return
         wanted = "food" if target.hunger >= target.thirst else "water"
         resource = (
             wanted
@@ -999,6 +1363,8 @@ class Simulation:
             emotion="hopeful",
             participants=[actor.id],
         )
+        self._adapt_temperament(actor, valence=1, intensity=0.4, source="helping")
+        self._adapt_temperament(target, valence=1, intensity=0.55, source="received_help")
         actor.decision_lock_ticks = 0
         self.emit("help", actor.id, target.id, resource=resource)
 
@@ -1028,11 +1394,15 @@ class Simulation:
                 emotion="angry",
                 participants=[actor.id],
             )
+            self._adapt_temperament(target, valence=-1, intensity=0.7, source="betrayal")
         actor.mood = "proud" if not detected else "afraid"
         actor.decision_lock_ticks = 0
         self.emit("steal", actor.id, target.id, resource=resource, detected=detected)
 
     def _explore(self, actor: Entity) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
         actor.position.x = min(
             max(8, actor.position.x + self.random.uniform(-25, 25)), self.state.width - 8
         )
@@ -1047,6 +1417,7 @@ class Simulation:
             importance=0.52,
             emotion="curious",
         )
+        actor.action_cooldown = 20
         self.emit("explore", actor.id)
 
     def _form_faction(self, actor: Entity) -> None:
@@ -1199,12 +1570,137 @@ class Simulation:
         if actor.reproduction_cooldown:
             actor.reproduction_cooldown -= 1
         actor.age_years += 1 / 100_000
+        if actor.kind == EntityKind.HUMAN:
+            self._update_psychology(actor)
         if actor.hunger > 100 or actor.thirst > 100 or actor.energy <= 0:
             actor.health -= 0.15
         elif actor.health < 100 and actor.hunger < 60 and actor.thirst < 60:
             actor.health = min(100, actor.health + 0.02)
         if actor.health <= 0:
             self._kill(actor)
+
+    def _update_psychology(self, actor: Entity) -> None:
+        if actor.state == AgentState.AWAKE:
+            actor.aesthetic_need = min(
+                100, actor.aesthetic_need + 0.008 + actor.temperament.creativity * 0.006
+            )
+            actor.growth_drive = min(
+                100,
+                actor.growth_drive
+                + 0.006
+                + (actor.temperament.curiosity + actor.temperament.ambition) * 0.004,
+            )
+            pressure = max(0, actor.hunger - 65) + max(0, actor.thirst - 65)
+            loneliness = max(0, 35 - actor.social)
+            actor.stress = min(100, actor.stress + pressure * 0.0008 + loneliness * 0.0005)
+        else:
+            actor.stress = max(0, actor.stress - 0.08 * actor.temperament.resilience)
+        if actor.stress > 82:
+            actor.mood = "afraid" if actor.temperament.resilience < 0.55 else "sad"
+            actor.confidence = max(0, actor.confidence - 0.008)
+        if actor.profession == Profession.UNASSIGNED:
+            actor.profession_satisfaction = max(0, actor.profession_satisfaction - 0.008)
+        else:
+            skill = actor.skills.get(str(actor.profession), 0)
+            fulfillment = actor.values.get(self._profession_value(actor.profession), 50) / 100
+            target = 35 + fulfillment * 45 + min(15, skill)
+            actor.profession_satisfaction += (target - actor.profession_satisfaction) * 0.0008
+
+    def _update_vocations(self) -> None:
+        interval = self.config.vocation_review_interval_ticks
+        if not interval or self.state.tick % interval:
+            return
+        humans = [human for human in self.state.living(EntityKind.HUMAN) if human.age_years >= 16]
+        counts: dict[str, int] = {}
+        for human in humans:
+            counts[str(human.profession)] = counts.get(str(human.profession), 0) + 1
+        for human in humans:
+            if (
+                human.profession != Profession.UNASSIGNED
+                and human.profession_satisfaction >= 28
+                and self.state.tick - human.last_vocation_tick < 1_500
+            ):
+                continue
+            scores = self._vocation_scores(human, counts)
+            chosen, chosen_score = max(scores.items(), key=lambda item: (item[1], item[0]))
+            current_score = scores.get(str(human.profession), -1.0)
+            if human.profession != Profession.UNASSIGNED and chosen_score < current_score + 0.18:
+                continue
+            previous = str(human.profession)
+            human.profession = chosen
+            human.profession_satisfaction = 58
+            human.last_vocation_tick = self.state.tick
+            human.goal = self._profession_goal(chosen)
+            if human.goal not in human.aspirations:
+                human.aspirations.append(human.goal)
+                del human.aspirations[:-5]
+            counts[previous] = max(0, counts.get(previous, 1) - 1)
+            counts[chosen] = counts.get(chosen, 0) + 1
+            human.remember(
+                f"I chose the vocation of {chosen}",
+                tick=self.state.tick,
+                category="profession",
+                importance=0.82,
+                emotion="hopeful",
+            )
+            self.emit(
+                "vocation_changed",
+                human.id,
+                previous=previous,
+                profession=chosen,
+                reason=self._profession_value(chosen),
+            )
+
+    def _vocation_scores(self, actor: Entity, counts: dict[str, int]) -> dict[str, float]:
+        t = actor.temperament
+        humans = self.state.living(EntityKind.HUMAN)
+        population = max(1, len(humans))
+        average_health = sum(human.health for human in humans) / population
+        food_pressure = max(0.0, 1 - self._settlement_resource_total("food") / (population * 3))
+        homeless = sum(1 for human in humans if not human.home_id) / population
+        wars = sum(len(faction.rivals) for faction in self.state.factions.values()) // 2
+        scores = {
+            str(Profession.GATHERER): t.discipline + food_pressure * 0.6,
+            str(Profession.FARMER): t.discipline + t.empathy * 0.3 + food_pressure,
+            str(Profession.RANCHER): t.risk_tolerance + t.discipline * 0.5,
+            str(Profession.BUILDER): t.creativity + t.discipline + homeless,
+            str(Profession.CARPENTER): t.creativity * 0.7 + t.discipline,
+            str(Profession.BLACKSMITH): t.discipline + t.ambition * 0.6,
+            str(Profession.MERCHANT): t.sociability + t.ambition * 0.7,
+            str(Profession.SCHOLAR): t.curiosity + t.discipline * 0.5 + actor.growth_drive / 100,
+            str(Profession.HEALER): t.empathy + t.discipline * 0.4 + (100 - average_health) / 50,
+            str(Profession.ARTIST): t.creativity + actor.values.get("beauty", 0) / 100,
+            str(Profession.TEACHER): t.empathy
+            + t.sociability * 0.5
+            + min(0.8, sum(actor.skills.values()) / 20),
+            str(Profession.DIPLOMAT): t.sociability + t.empathy * 0.7 + min(1, wars),
+            str(Profession.GUARD): t.aggression + t.resilience * 0.7 + min(1, wars),
+        }
+        for rule in self.state.active_rules.values():
+            if rule.get("category") != "profession":
+                continue
+            effects = rule.get("effects", {})
+            scores[rule["id"]] = (
+                t.curiosity * float(effects.get("knowledge_gain", 0))
+                + t.creativity * float(effects.get("beauty_gain", 0))
+                + t.empathy * float(effects.get("health_gain", 0))
+                + t.sociability * float(effects.get("social_gain", 0))
+                + t.empathy * float(effects.get("stress_relief", 0))
+                + t.ambition * 0.5
+            )
+        scarcity_bonuses = {
+            str(Profession.GATHERER): 1.0,
+            str(Profession.FARMER): 0.8,
+            str(Profession.BUILDER): 0.7 if homeless > 0.2 else 0.2,
+            str(Profession.HEALER): 0.7 if average_health < 92 else 0.25,
+        }
+        for profession, bonus in scarcity_bonuses.items():
+            if counts.get(profession, 0) == 0:
+                scores[profession] += bonus
+        return {
+            profession: score - counts.get(profession, 0) * 0.7
+            for profession, score in scores.items()
+        }
 
     def _regenerate_resources(self) -> None:
         if self.state.tick % 50:
@@ -1322,6 +1818,12 @@ class Simulation:
                 importance=world_memory[1],
                 emotion=world_memory[2],
             )
+            self._adapt_temperament(
+                human,
+                valence=1 if event_type in {"harvest", "mineral_boom"} else -1,
+                intensity=0.35 if event_type in {"harvest", "mineral_boom"} else 0.65,
+                source=event_type,
+            )
         self.emit("world_event", event=event_type)
 
     def _apply_ai_results(self) -> None:
@@ -1412,7 +1914,12 @@ class Simulation:
             entity.dreams.append(reflection.dream)
             del entity.dreams[:-8]
             entity.goal = reflection.new_goal
+            if reflection.new_goal not in entity.aspirations:
+                entity.aspirations.append(reflection.new_goal)
+                del entity.aspirations[:-5]
             entity.mood = reflection.mood
+            entity.self_awareness = min(100, entity.self_awareness + 4)
+            entity.growth_drive = min(100, entity.growth_drive + 8)
             entity.remember(
                 reflection.insight,
                 tick=self.state.tick,
@@ -1479,6 +1986,7 @@ class Simulation:
             ActionType.TELL_STORY,
             ActionType.TEACH,
             ActionType.FORGIVE,
+            ActionType.INSPIRE,
         }
         if action.kind in human_targets and (not target or target.kind != EntityKind.HUMAN):
             return "action requires a human target"
@@ -1496,6 +2004,10 @@ class Simulation:
             not target or target.kind != EntityKind.BUILDING
         ):
             return "sabotage requires a building target"
+        if action.kind == ActionType.BEAUTIFY and (
+            not target or target.kind != EntityKind.BUILDING
+        ):
+            return "beautify requires a building target"
         faction = self.state.factions.get(actor.faction_id or "")
         target_faction = self.state.factions.get(target.faction_id or "") if target else None
         if action.kind == ActionType.FORM_FACTION and actor.faction_id:
@@ -1552,8 +2064,18 @@ class Simulation:
                     "faction_id": entity.faction_id,
                     "relationship": round(actor.relationships.get(entity.id, 0), 1),
                     "health": round(entity.health, 1),
+                    "mood": entity.mood if entity.kind == EntityKind.HUMAN else None,
+                    "goal": entity.goal if entity.kind == EntityKind.HUMAN else None,
+                    "confidence": (
+                        round(entity.confidence, 1) if entity.kind == EntityKind.HUMAN else None
+                    ),
+                    "stress": round(entity.stress, 1) if entity.kind == EntityKind.HUMAN else None,
+                    "appearance_style": (
+                        entity.appearance_style if entity.kind == EntityKind.HUMAN else None
+                    ),
                     "inventory": entity.inventory if entity.kind == EntityKind.HUMAN else {},
                     "building_type": entity.building_type,
+                    "beauty": round(entity.beauty, 1),
                 }
                 for entity in nearby_entities
             ),
@@ -1603,6 +2125,10 @@ class Simulation:
                 "tell_story": "share a defining long-term memory with a nearby human",
                 "teach": "pass your strongest skill to a nearby human",
                 "forgive": "soften a negative relationship with a nearby human",
+                "study": "grow knowledge, skill, self-awareness, and possibly find a vocation",
+                "self_care": "express identity by visibly changing style and accessory",
+                "inspire": "share a value and aspiration with a nearby human",
+                "beautify": "an artist improves a nearby building and its visual appearance",
             },
             "legal_actions": self._legal_actions_for(actor, nearby_entities),
         }
@@ -1612,6 +2138,8 @@ class Simulation:
             ActionType.IDLE,
             ActionType.SLEEP,
             ActionType.EXPLORE,
+            ActionType.STUDY,
+            ActionType.SELF_CARE,
         }
         if actor.short_term_memory:
             actions.add(ActionType.REFLECT)
@@ -1636,6 +2164,7 @@ class Simulation:
                     ActionType.HELP,
                     ActionType.STEAL,
                     ActionType.ATTACK,
+                    ActionType.INSPIRE,
                 }
             )
             if actor.long_term_memory:
@@ -1655,6 +2184,7 @@ class Simulation:
             actions.add(ActionType.MATE)
         if any(entity.kind == EntityKind.BUILDING for entity in nearby):
             actions.add(ActionType.SABOTAGE)
+            actions.add(ActionType.BEAUTIFY)
         if actor.inventory.get("wood", 0) >= 10 and actor.inventory.get("stone", 0) >= 3:
             actions.add(ActionType.BUILD)
         if actor.profession != Profession.UNASSIGNED:
@@ -1680,8 +2210,10 @@ class Simulation:
         return sorted(action.value for action in actions)
 
     def statistics(self) -> dict[str, int]:
+        humans = self.state.living(EntityKind.HUMAN)
+        population = max(1, len(humans))
         return {
-            "humans": len(self.state.living(EntityKind.HUMAN)),
+            "humans": len(humans),
             "cows": len(self.state.living(EntityKind.COW)),
             "buildings": sum(
                 1 for item in self.state.entities.values() if item.kind == EntityKind.BUILDING
@@ -1689,6 +2221,9 @@ class Simulation:
             "events": len(self.events),
             "factions": len(self.state.factions),
             "wars": sum(len(item.rivals) for item in self.state.factions.values()) // 2,
+            "professions": len({str(human.profession) for human in humans}),
+            "knowledge": round(sum(sum(human.knowledge.values()) for human in humans) / population),
+            "stress": round(sum(human.stress for human in humans) / population),
         }
 
     def _approach_or(
@@ -1827,6 +2362,8 @@ class Simulation:
             "empathy": self.random.betavariate(1.7, 1.5),
             "creativity": self.random.betavariate(1.6, 1.5),
             "risk_tolerance": self.random.betavariate(1.5, 1.7),
+            "resilience": self.random.betavariate(1.8, 1.5),
+            "discipline": self.random.betavariate(1.6, 1.6),
         }
         archetypes = {
             "aggression": "warrior",
@@ -1836,6 +2373,8 @@ class Simulation:
             "empathy": "caretaker",
             "creativity": "visionary",
             "risk_tolerance": "rebel",
+            "resilience": "stoic",
+            "discipline": "scholar",
         }
         strongest = max(traits, key=traits.get)
         return Temperament(archetype=archetypes[strongest], **traits)
@@ -1850,6 +2389,8 @@ class Simulation:
             "empathy",
             "creativity",
             "risk_tolerance",
+            "resilience",
+            "discipline",
         ):
             inherited = (getattr(first.temperament, trait) + getattr(second.temperament, trait)) / 2
             values[trait] = max(0.0, min(1.0, inherited + self.random.uniform(-0.12, 0.12)))
@@ -1861,6 +2402,8 @@ class Simulation:
             "empathy": "caretaker",
             "creativity": "visionary",
             "risk_tolerance": "rebel",
+            "resilience": "stoic",
+            "discipline": "scholar",
         }
         strongest = max(values, key=values.get)
         return Temperament(archetype=archetypes[strongest], **values)
@@ -1875,7 +2418,122 @@ class Simulation:
             "caretaker": "protect people who need help",
             "visionary": "create something the world has never seen",
             "rebel": "gain freedom and challenge authority",
+            "stoic": "become resilient enough to protect what matters",
+            "scholar": "understand myself and the world deeply",
         }.get(temperament.archetype, "survive and find a place in the world")
+
+    @staticmethod
+    def _initial_values(temperament: Temperament) -> dict[str, float]:
+        return {
+            "community": 25 + temperament.sociability * 55,
+            "care": 25 + temperament.empathy * 55,
+            "achievement": 25 + temperament.ambition * 55,
+            "knowledge": 25 + temperament.curiosity * 55,
+            "beauty": 25 + temperament.creativity * 55,
+            "power": 20 + temperament.aggression * 55,
+            "freedom": 25 + temperament.risk_tolerance * 55,
+        }
+
+    def _adapt_temperament(
+        self, actor: Entity, *, valence: int, intensity: float, source: str
+    ) -> None:
+        intensity = max(0.0, min(1.0, intensity))
+        previous_archetype = actor.temperament.archetype
+        if valence >= 0:
+            actor.temperament.empathy = min(1, actor.temperament.empathy + 0.012 * intensity)
+            actor.temperament.sociability = min(
+                1, actor.temperament.sociability + 0.009 * intensity
+            )
+            actor.temperament.resilience = min(1, actor.temperament.resilience + 0.014 * intensity)
+            actor.temperament.curiosity = min(1, actor.temperament.curiosity + 0.006 * intensity)
+            actor.confidence = min(100, actor.confidence + 2.5 * intensity)
+            actor.stress = max(0, actor.stress - 5 * intensity)
+        else:
+            vulnerability = 1 - actor.temperament.resilience * 0.65
+            actor.temperament.aggression = min(
+                1, actor.temperament.aggression + 0.015 * intensity * vulnerability
+            )
+            actor.temperament.sociability = max(
+                0, actor.temperament.sociability - 0.01 * intensity * vulnerability
+            )
+            actor.temperament.resilience = min(1, actor.temperament.resilience + 0.006 * intensity)
+            actor.confidence = max(0, actor.confidence - 4 * intensity * vulnerability)
+            actor.stress = min(100, actor.stress + 14 * intensity * vulnerability)
+        self._refresh_archetype(actor)
+        if intensity >= 0.4:
+            self.emit(
+                "temperament_changed",
+                actor.id,
+                source=source,
+                valence=valence,
+                archetype_before=previous_archetype,
+                archetype_after=actor.temperament.archetype,
+                stress=round(actor.stress, 1),
+            )
+
+    @staticmethod
+    def _refresh_archetype(actor: Entity) -> None:
+        archetypes = {
+            "aggression": "warrior",
+            "sociability": "diplomat",
+            "ambition": "leader",
+            "curiosity": "explorer",
+            "empathy": "caretaker",
+            "creativity": "visionary",
+            "risk_tolerance": "rebel",
+            "resilience": "stoic",
+            "discipline": "scholar",
+        }
+        strongest = max(archetypes, key=lambda trait: getattr(actor.temperament, trait))
+        actor.temperament.archetype = archetypes[strongest]
+
+    def _evolve_goal(self, actor: Entity) -> None:
+        if actor.profession != Profession.UNASSIGNED and actor.profession_satisfaction >= 45:
+            goal = self._profession_goal(str(actor.profession))
+        else:
+            strongest = max(actor.values, key=actor.values.get, default="knowledge")
+            goal = {
+                "community": "create a community where nobody is isolated",
+                "care": "learn how to heal and protect vulnerable people",
+                "achievement": "master a difficult craft and leave a legacy",
+                "knowledge": "understand the world and share what I discover",
+                "beauty": "make myself and the settlement more beautiful",
+                "power": "earn influence and reshape society",
+                "freedom": "build a life independent of other people's rules",
+            }[strongest]
+        actor.goal = goal
+        if goal not in actor.aspirations:
+            actor.aspirations.append(goal)
+            del actor.aspirations[:-5]
+
+    @staticmethod
+    def _profession_value(profession: str) -> str:
+        return {
+            str(Profession.SCHOLAR): "knowledge",
+            str(Profession.HEALER): "care",
+            str(Profession.ARTIST): "beauty",
+            str(Profession.TEACHER): "knowledge",
+            str(Profession.DIPLOMAT): "community",
+            str(Profession.GUARD): "community",
+            str(Profession.BUILDER): "achievement",
+            str(Profession.CARPENTER): "achievement",
+            str(Profession.BLACKSMITH): "achievement",
+            str(Profession.MERCHANT): "freedom",
+        }.get(str(profession), "care")
+
+    @staticmethod
+    def _profession_goal(profession: str) -> str:
+        return {
+            str(Profession.SCHOLAR): "study the world and preserve its knowledge",
+            str(Profession.HEALER): "keep the community healthy and ease suffering",
+            str(Profession.ARTIST): "bring beauty and meaning into everyday life",
+            str(Profession.TEACHER): "help others discover what they can become",
+            str(Profession.DIPLOMAT): "resolve conflicts and connect divided people",
+            str(Profession.GUARD): "protect the settlement without becoming cruel",
+            str(Profession.BUILDER): "give every person a safe and beautiful home",
+            str(Profession.FARMER): "make sure the community never goes hungry",
+            str(Profession.GATHERER): "provide what the settlement needs to endure",
+        }.get(str(profession), f"master the vocation of {profession}")
 
     @staticmethod
     def _in_range(first: Entity, second: Entity, distance: float) -> bool:

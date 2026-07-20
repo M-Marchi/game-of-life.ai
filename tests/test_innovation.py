@@ -6,7 +6,7 @@ from game_of_life.ai.client import FakeAIClient
 from game_of_life.ai.scheduler import AIWorker
 from game_of_life.engine import Simulation
 from game_of_life.innovation import InnovationManager
-from game_of_life.models import Profession
+from game_of_life.models import Action, ActionType, Profession
 from game_of_life.rules import RuleProposal
 
 
@@ -43,3 +43,25 @@ def test_generated_profession_is_activated_and_used(empty_config) -> None:
         assert any(event.event_type == "rule_activated" for event in simulation.events)
     finally:
         worker.stop()
+
+
+def test_generated_human_development_profession_has_real_effect(empty_config) -> None:
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human()
+    human.profession = "story_counselor"
+    simulation.state.active_rules["story_counselor"] = RuleProposal(
+        id="story_counselor",
+        category="profession",
+        name="Story counselor",
+        description="Uses shared stories to strengthen confidence and understanding.",
+        effects={"knowledge_gain": 0.5, "confidence_gain": 2},
+        duration_ticks=10,
+        activation_reason="People need meaning and emotional support.",
+    ).model_dump(mode="json")
+    before_confidence = human.confidence
+
+    human.action = Action(ActionType.WORK, resource="story_counselor")
+    simulation._resolve(human)
+
+    assert human.knowledge["story_counselor"] == 0.5
+    assert human.confidence == before_confidence + 2

@@ -58,6 +58,16 @@ def test_attack_kills_cow_and_produces_meat(empty_config) -> None:
     assert human.inventory["meat"] == 8
 
 
+def test_death_is_idempotent(empty_config) -> None:
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human()
+
+    simulation._kill(human)
+    simulation._kill(human)
+
+    assert len([event for event in simulation.events if event.event_type == "death"]) == 1
+
+
 def test_building_consumes_resources_and_has_owner(empty_config) -> None:
     simulation = Simulation(empty_config)
     builder = simulation.spawn_human(position=Position(100, 100))

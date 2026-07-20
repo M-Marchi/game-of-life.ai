@@ -34,6 +34,7 @@ class SimulationConfig:
     world_event_interval_ticks: int = 1_200
     sleep_duration_ticks: int = 160
     dream_start_ticks: int = 80
+    vocation_review_interval_ticks: int = 300
     ai: AIConfig = field(default_factory=AIConfig)
 
 

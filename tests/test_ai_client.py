@@ -15,6 +15,18 @@ def test_talk_intent_requires_target() -> None:
         AgentIntent(action=ActionType.TALK, explanation="I want to talk")
 
 
+def test_empty_target_is_normalized_for_non_targeted_action() -> None:
+    intent = AgentIntent(
+        action=ActionType.STUDY,
+        target_id="",
+        explanation="I want to learn.",
+        goal="understand the world",
+        mood="curious",
+    )
+
+    assert intent.target_id is None
+
+
 def test_generated_rule_repairs_invalid_first_response(monkeypatch) -> None:
     client = OllamaAIClient(AIConfig())
     responses = iter(

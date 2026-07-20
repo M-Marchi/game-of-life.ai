@@ -41,6 +41,10 @@ class ActionType(StrEnum):
     TELL_STORY = "tell_story"
     TEACH = "teach"
     FORGIVE = "forgive"
+    STUDY = "study"
+    SELF_CARE = "self_care"
+    INSPIRE = "inspire"
+    BEAUTIFY = "beautify"
 
 
 class AgentState(StrEnum):
@@ -58,6 +62,12 @@ class Profession(StrEnum):
     CARPENTER = "carpenter"
     BLACKSMITH = "blacksmith"
     MERCHANT = "merchant"
+    SCHOLAR = "scholar"
+    HEALER = "healer"
+    ARTIST = "artist"
+    TEACHER = "teacher"
+    DIPLOMAT = "diplomat"
+    GUARD = "guard"
 
 
 @dataclass(slots=True)
@@ -88,6 +98,8 @@ class Temperament:
     empathy: float = 0.5
     creativity: float = 0.5
     risk_tolerance: float = 0.5
+    resilience: float = 0.5
+    discipline: float = 0.5
 
 
 @dataclass(slots=True)
@@ -136,7 +148,10 @@ class Entity:
     vision: float = 120.0
     inventory: dict[str, int] = field(default_factory=dict)
     profession: str = Profession.UNASSIGNED
+    profession_satisfaction: float = 50.0
     skills: dict[str, float] = field(default_factory=dict)
+    knowledge: dict[str, float] = field(default_factory=dict)
+    values: dict[str, float] = field(default_factory=dict)
     relationships: dict[str, float] = field(default_factory=dict)
     short_term_memory: list[MemoryEntry] = field(default_factory=list)
     long_term_memory: list[MemoryEntry] = field(default_factory=list)
@@ -154,6 +169,17 @@ class Entity:
     temperament: Temperament = field(default_factory=Temperament)
     mood: str = "calm"
     goal: str = "survive and find a place in the world"
+    aspirations: list[str] = field(default_factory=list)
+    self_awareness: float = 30.0
+    growth_drive: float = 50.0
+    confidence: float = 50.0
+    stress: float = 0.0
+    aesthetic_need: float = 20.0
+    appearance_style: str = "plain"
+    appearance_hue: int = 42
+    accessory: str = "none"
+    beauty: float = 0.0
+    last_vocation_tick: int = -100_000
     faction_id: str | None = None
     reputation: float = 0.0
     last_ai_tick: int = -100_000
