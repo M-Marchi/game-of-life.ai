@@ -177,9 +177,12 @@ class Simulation:
                 self._advance_sleep(actor)
                 self._update_needs(actor)
                 continue
-            if actor.decision_lock_ticks > 0:
+            urgent_need = self._has_urgent_survival_need(actor)
+            if actor.decision_lock_ticks > 0 and not urgent_need:
                 actor.decision_lock_ticks -= 1
             else:
+                if urgent_need:
+                    actor.decision_lock_ticks = 0
                 actor.action = self._choose_local_action(actor)
             self._resolve(actor)
             self._update_needs(actor)
@@ -230,6 +233,8 @@ class Simulation:
         return work or Action(ActionType.IDLE, explanation="No urgent task")
 
     def _choose_cow_action(self, cow: Entity) -> Action:
+        if cow.energy <= 25:
+            return Action(ActionType.SLEEP, explanation="rest")
         if cow.thirst >= 55:
             lake = self._nearest(cow, kinds={EntityKind.LAKE})
             return self._approach_or(ActionType.DRINK, cow, lake, 16, "drink")
@@ -650,6 +655,13 @@ class Simulation:
     def _advance_sleep(self, actor: Entity) -> None:
         actor.sleep_ticks_remaining = max(0, actor.sleep_ticks_remaining - 1)
         actor.energy = min(100, actor.energy + 0.75)
+        if actor.kind == EntityKind.COW:
+            if actor.sleep_ticks_remaining == 0:
+                actor.state = AgentState.AWAKE
+                actor.energy = max(actor.energy, 92)
+                actor.action = Action(ActionType.IDLE, explanation="rested")
+                self.emit("woke_up", actor.id, dream="", long_memories=0)
+            return
         if (
             actor.state == AgentState.SLEEPING
             and actor.sleep_ticks_remaining <= self.config.dream_start_ticks
@@ -1107,6 +1119,7 @@ class Simulation:
         damage = max(1.0, actor.attack - target.defense)
         target.health -= damage
         actor.action_cooldown = 10
+        actor.decision_lock_ticks = 0
         if target.kind == EntityKind.HUMAN:
             self._update_bond(
                 actor,
@@ -1128,9 +1141,15 @@ class Simulation:
             )
         self.emit("attack", actor.id, target.id, damage=round(damage, 2))
         if target.health <= 0:
-            self._kill(target, actor)
+            self._kill(target, actor, cause="violence")
 
-    def _kill(self, target: Entity, killer: Entity | None = None) -> None:
+    def _kill(
+        self,
+        target: Entity,
+        killer: Entity | None = None,
+        *,
+        cause: str | None = None,
+    ) -> None:
         if not target.alive:
             return
         target.alive = False
@@ -1181,7 +1200,13 @@ class Simulation:
                         witness, valence=-1, intensity=0.9, source="witnessed_death"
                     )
             self._adapt_temperament(killer, valence=-1, intensity=0.8, source="killing")
-        self.emit("death", killer.id if killer else None, target.id, kind=target.kind)
+        self.emit(
+            "death",
+            killer.id if killer else None,
+            target.id,
+            kind=target.kind,
+            cause=cause or ("violence" if killer else "health"),
+        )
 
     def _talk(self, actor: Entity, target: Entity | None) -> None:
         if actor.action_cooldown:
@@ -1935,7 +1960,15 @@ class Simulation:
         elif actor.health < 100 and actor.hunger < 60 and actor.thirst < 60:
             actor.health = min(100, actor.health + 0.02)
         if actor.health <= 0:
-            self._kill(actor)
+            if actor.thirst > 100:
+                cause = "dehydration"
+            elif actor.hunger > 100:
+                cause = "starvation"
+            elif actor.energy <= 0:
+                cause = "exhaustion"
+            else:
+                cause = "health"
+            self._kill(actor, cause=cause)
 
     def _update_psychology(self, actor: Entity) -> None:
         if actor.state == AgentState.AWAKE:
@@ -2359,6 +2392,8 @@ class Simulation:
             not target or target.kind not in {EntityKind.HUMAN, EntityKind.COW}
         ):
             return "attack requires a living target"
+        if action.kind == ActionType.ATTACK and target and not self._can_attack(actor, target):
+            return "attack requires war, a serious grievance, hunger, or a violent temperament"
         if action.kind == ActionType.SABOTAGE and (
             not target or target.kind != EntityKind.BUILDING
         ):
@@ -2442,6 +2477,7 @@ class Simulation:
                         if entity.id in actor.social_bonds
                         else 0
                     ),
+                    "attack_allowed": self._can_attack(actor, entity),
                     "health": round(entity.health, 1),
                     "mood": entity.mood if entity.kind == EntityKind.HUMAN else None,
                     "goal": entity.goal if entity.kind == EntityKind.HUMAN else None,
@@ -2543,18 +2579,21 @@ class Simulation:
                     ActionType.TRADE,
                     ActionType.HELP,
                     ActionType.STEAL,
-                    ActionType.ATTACK,
                     ActionType.INSPIRE,
                     ActionType.EXPRESS_AFFECTION,
                 }
             )
+            if any(self._can_attack(actor, human) for human in humans):
+                actions.add(ActionType.ATTACK)
             if actor.long_term_memory:
                 actions.add(ActionType.TELL_STORY)
             if actor.skills:
                 actions.add(ActionType.TEACH)
             if any(actor.relationships.get(human.id, 0) < 0 for human in humans):
                 actions.add(ActionType.FORGIVE)
-        if any(entity.kind == EntityKind.COW for entity in nearby):
+        if any(
+            entity.kind == EntityKind.COW and self._can_attack(actor, entity) for entity in nearby
+        ):
             actions.add(ActionType.ATTACK)
         if any(
             entity.kind == actor.kind
@@ -2919,6 +2958,37 @@ class Simulation:
     @staticmethod
     def _in_range(first: Entity, second: Entity, distance: float) -> bool:
         return first.position.distance_to(second.position) <= distance
+
+    def _has_urgent_survival_need(self, actor: Entity) -> bool:
+        if actor.thirst >= 55 or actor.energy <= 22:
+            return True
+        if actor.kind == EntityKind.COW:
+            return actor.hunger >= 48
+        return actor.hunger >= 70 or (
+            actor.hunger >= 55 and self._inventory_total(actor, ("food", "meat")) > 0
+        )
+
+    def _can_attack(self, actor: Entity, target: Entity) -> bool:
+        if not target.alive or actor.id == target.id:
+            return False
+        if target.kind == EntityKind.COW:
+            return actor.hunger >= 60 or (
+                actor.temperament.aggression >= 0.86 and actor.temperament.risk_tolerance >= 0.72
+            )
+        if target.kind != EntityKind.HUMAN or actor.kind != EntityKind.HUMAN:
+            return False
+        own_faction = self.state.factions.get(actor.faction_id or "")
+        at_war = bool(own_faction and target.faction_id and target.faction_id in own_faction.rivals)
+        bond = actor.social_bonds.get(target.id)
+        serious_grievance = actor.relationships.get(target.id, 0) <= -20 or bool(
+            bond and (bond.affinity <= -20 or bond.trust <= -25)
+        )
+        violent_impulse = (
+            actor.temperament.aggression >= 0.82
+            and actor.temperament.empathy <= 0.38
+            and actor.temperament.risk_tolerance >= 0.68
+        )
+        return at_war or serious_grievance or violent_impulse
 
     @staticmethod
     def _inventory_total(entity: Entity, resources: tuple[str, ...]) -> int:

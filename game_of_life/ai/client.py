@@ -185,7 +185,8 @@ class OllamaAIClient:
             "the JSON schema. For non-targeted actions set target_id=null. The explanation must "
             "be one complete sentence under 160 characters.\n"
             "Do not declare war on an existing rival; during a war choose attack, sabotage, help, "
-            "or make_peace according to personality. Choose only from WORLD.legal_actions. "
+            "or make_peace according to personality. ATTACK is exceptional: its target must have "
+            "attack_allowed=true. Choose only from WORLD.legal_actions. "
             f"AGENT={json.dumps(_entity_context(entity), ensure_ascii=False)}\n"
             f"WORLD={json.dumps(context, ensure_ascii=False)}"
         )

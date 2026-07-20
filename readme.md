@@ -23,7 +23,7 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
 - grafo sociale persistente con amicizie, amori, odi, paura, famiglia, mentori e rivalità;
 - fazioni, reclutamento, guerre, successione dei leader, pace e dissoluzione dei gruppi;
 - azioni emergenti come aiutare, rubare, esplorare, innovare, sabotare, riflettere, raccontare,
-  insegnare, studiare, ispirare, curarsi, abbellire e perdonare;
+  insegnare, studiare, ispirare, curarsi, abbellire, perdonare ed esprimere affetto;
 - crisi ambientali periodiche: siccità, incendi, epidemie, raccolti e boom minerari;
 - cognizione ibrida con fallback deterministico;
 - generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
@@ -54,7 +54,7 @@ Comandi UI:
 
 - clic su un'entità: apre l'inspector;
 - `Spazio`: pausa/riprendi;
-- `+` e `-`: velocità della simulazione.
+- `+` e `-`: velocità della simulazione;
 - `G`: mostra/nasconde il grafo sociale sovrapposto al mondo.
 
 Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite; durante il sonno mostrano `zZ` e
@@ -68,6 +68,28 @@ Le conversazioni non sono solo eventi cosmetici: trasmettono valori, aspirazioni
 tradimento, violenza, creazione, studio, insegnamento e crisi ambientali modificano gradualmente
 fiducia, stress, resilienza e temperamento. Gli agenti insoddisfatti rivalutano periodicamente la
 propria vocazione; bambini e adulti senza un ruolo studiano per scoprire cosa vogliono diventare.
+
+## Grafo sociale
+
+Ogni relazione è direzionale: Ada può amare Bruno mentre Bruno prova soltanto amicizia, diffidenza
+o paura. Il legame non è un singolo punteggio, ma combina:
+
+- `affinity`: simpatia oppure ostilità;
+- `trust`: fiducia costruita o tradita;
+- `attraction`: interesse romantico;
+- `respect`: stima personale e professionale;
+- `fear`: timore prodotto da minacce e violenza;
+- `familiarity`: quanto i personaggi si conoscono.
+
+Da questi valori e dai ruoli sociali emergono conoscenze, amicizie, amori, odi, rivalità, famiglia,
+partner, mentori, studenti e alleanze politiche. Conversazioni, affetto ricambiato o rifiutato,
+aiuto, furto, insegnamento, nascita, reclutamento, guerra e pace aggiornano i due versi del rapporto
+in modo indipendente.
+
+Premendo `G` la mappa mostra i legami più importanti con colori diversi: rosa per l'amore, azzurro
+per la famiglia, verde per l'amicizia, rosso per l'odio, viola per la paura e arancione per le
+rivalità. Selezionando un personaggio, il pannello laterale mostra la sua percezione dei rapporti e
+i valori di affinità, fiducia, attrazione e paura.
 
 Il ritmo della GUI è 10 tick al secondo a velocità `x1`. Un ciclo di sonno dura circa 16 secondi:
 a metà ciclo le esperienze importanti vengono consolidate, quelle banali dimenticate e Qwen produce
@@ -87,6 +109,17 @@ SELECT tick, actor_id, action, target_id, payload_json
 FROM events
 WHERE event_type = 'ai_decision' AND action = 'talk'
 ORDER BY sequence DESC;
+```
+
+Anche i decessi indicano ora la causa nel payload (`violence`, `starvation`, `dehydration`,
+`exhaustion` o `health`):
+
+```sql
+SELECT json_extract(payload_json, '$.cause') AS cause, count(*) AS deaths
+FROM events
+WHERE event_type = 'death'
+GROUP BY cause
+ORDER BY deaths DESC;
 ```
 
 Ogni 3 minuti simulati, e alla chiusura, viene salvato lo stato mentale completo di ogni umano
@@ -115,6 +148,25 @@ WHERE source_id = 'human-000120'
 ORDER BY tick, target_id;
 ```
 
+Per vedere soltanto i legami più forti dell'ultimo campione:
+
+```sql
+WITH latest AS (SELECT max(tick) AS tick FROM social_edges)
+SELECT source_id, target_id, relationship, affinity, trust, attraction, fear
+FROM social_edges
+JOIN latest USING (tick)
+ORDER BY max(abs(affinity), abs(trust), attraction, fear) DESC;
+```
+
+Per seguire nel tempo uno specifico rapporto direzionale:
+
+```sql
+SELECT tick, relationship, affinity, trust, attraction, respect, fear, familiarity
+FROM social_edges
+WHERE source_id = 'human-000120' AND target_id = 'human-000121'
+ORDER BY tick;
+```
+
 I valori correnti sono inclusi anche nello stato mentale del personaggio, mentre `edge_json` conserva
 ruoli e cronologia sintetica delle interazioni.
 
@@ -129,8 +181,23 @@ Configurazione tramite variabili d'ambiente:
 - `GOL_OLLAMA_MODEL` (default `qwen3:8b`);
 - `GOL_OLLAMA_ENDPOINT` (default `http://127.0.0.1:11434`);
 - `GOL_AI_ENABLED` (`true`/`false`);
-- `GOL_SEED`.
+- `GOL_SEED`;
 - `GOL_MENTAL_SNAPSHOT_MINUTES` (default `3`, `0` per disabilitare il campionamento periodico).
+
+## Diagnostica
+
+Per confrontare il comportamento generativo con il fallback deterministico usa database separati:
+
+```powershell
+uv run game-of-life --headless --ticks 10000 --save saves/qwen-run.db
+uv run game-of-life --headless --no-ai --ticks 10000 --save saves/local-run.db
+```
+
+Se una popolazione si estingue, la query sulle cause di morte distingue subito una guerra da un
+problema di risorse. Gli attacchi contro umani sono ammessi soltanto in guerra, in presenza di un
+grave rancore o per temperamenti eccezionalmente violenti; ogni decisione produce un singolo colpo.
+Fame, sete ed esaurimento interrompono sempre un'azione AI ancora in corso, così la sopravvivenza non
+rimane bloccata da una decisione generativa ormai superata.
 
 ## Sviluppo
 
