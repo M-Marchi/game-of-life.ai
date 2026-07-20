@@ -24,6 +24,7 @@ class SimulationUI:
     selected_id: str | None = None
     paused: bool = False
     speed: int = 1
+    graph_mode: bool = False
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.QUIT:
@@ -35,6 +36,8 @@ class SimulationUI:
                 self.speed = min(8, self.speed * 2)
             elif event.key == pygame.K_MINUS:
                 self.speed = max(1, self.speed // 2)
+            elif event.key == pygame.K_g:
+                self.graph_mode = not self.graph_mode
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             x, y = event.pos
             if x < self.simulation.state.width:
@@ -42,10 +45,14 @@ class SimulationUI:
         return True
 
     def draw(self) -> None:
-        self.screen.fill((42, 145, 72))
-        for entity in self.simulation.state.entities.values():
-            if entity.alive:
-                self._draw_entity(entity)
+        if self.graph_mode:
+            self.screen.fill((18, 24, 32))
+            self._draw_social_graph()
+        else:
+            self.screen.fill((42, 145, 72))
+            for entity in self.simulation.state.entities.values():
+                if entity.alive:
+                    self._draw_entity(entity)
         self._draw_panel()
         pygame.display.flip()
 
@@ -111,10 +118,13 @@ class SimulationUI:
             size=13,
             color=(160, 205, 220),
         )
-        self._text("SPAZIO pausa   +/- velocità", left + 16, 140, color=(155, 165, 175))
+        self._text("SPAZIO pausa  +/- velocità  G grafo", left + 16, 140, color=(155, 165, 175))
 
         y = 166
         selected = self.simulation.state.entities.get(self.selected_id or "")
+        if self.graph_mode:
+            self._draw_social_panel(left, y, selected)
+            return
         if selected:
             self._text("AGENTE", left + 16, y, color=(100, 190, 255))
             details = (
@@ -219,6 +229,117 @@ class SimulationUI:
             self._text("zZ", x - 5, y + 10, size=15, color=(170, 190, 255))
         elif entity.state == AgentState.DREAMING:
             self._text("*", x - 2, y + 10, size=18, color=(205, 150, 255))
+
+    def _draw_social_graph(self) -> None:
+        graph = self.simulation.social_graph()
+        nodes = {node["id"]: node for node in graph["nodes"]}
+        priority = {
+            "love": 9,
+            "family": 8,
+            "hate": 7,
+            "fear": 6,
+            "faction_rival": 5,
+            "rival": 5,
+            "mentor": 4,
+            "student": 4,
+            "partner": 4,
+            "friend": 3,
+            "faction_ally": 2,
+            "acquaintance": 1,
+        }
+        pairs: dict[frozenset[str], dict[str, object]] = {}
+        for edge in graph["edges"]:
+            pair = frozenset((str(edge["source"]), str(edge["target"])))
+            current = pairs.get(pair)
+            if current is None or priority.get(str(edge["relationship"]), 0) > priority.get(
+                str(current["relationship"]), 0
+            ):
+                pairs[pair] = edge
+        for edge in pairs.values():
+            source = nodes.get(edge["source"])
+            target = nodes.get(edge["target"])
+            if not source or not target:
+                continue
+            relationship = str(edge["relationship"])
+            color = self._relationship_color(relationship)
+            start = (round(float(source["x"])), round(float(source["y"])))
+            end = (round(float(target["x"])), round(float(target["y"])))
+            pygame.draw.line(
+                self.screen,
+                color,
+                start,
+                end,
+                3 if relationship in {"love", "family", "hate"} else 1,
+            )
+            if self.selected_id in {edge["source"], edge["target"]}:
+                midpoint = ((start[0] + end[0]) // 2, (start[1] + end[1]) // 2)
+                self._text(relationship, midpoint[0], midpoint[1], size=13, color=color)
+        for human in self.simulation.state.living(EntityKind.HUMAN):
+            self._draw_human(human, round(human.position.x), round(human.position.y))
+            if human.id == self.selected_id:
+                pygame.draw.circle(
+                    self.screen,
+                    (255, 220, 40),
+                    (round(human.position.x), round(human.position.y)),
+                    14,
+                    2,
+                )
+
+    def _draw_social_panel(self, left: int, y: int, selected: Entity | None) -> None:
+        graph = self.simulation.social_graph()
+        counts: dict[str, int] = {}
+        for edge in graph["edges"]:
+            relationship = str(edge["relationship"])
+            counts[relationship] = counts.get(relationship, 0) + 1
+        self._text("GRAFO SOCIALE", left + 16, y, color=(235, 135, 190))
+        y += 24
+        summary = "  ".join(
+            f"{name}:{counts.get(name, 0)}" for name in ("love", "friend", "family", "hate")
+        )
+        self._text(summary, left + 16, y, size=14)
+        y += 26
+        if not selected or selected.kind != EntityKind.HUMAN:
+            self._text("Seleziona una persona per vedere i legami", left + 16, y, size=14)
+            return
+        self._text(selected.name, left + 16, y, color=(100, 190, 255))
+        bonds = sorted(
+            selected.social_bonds.values(),
+            key=lambda bond: abs(bond.affinity) + abs(bond.trust) + bond.attraction + bond.fear,
+            reverse=True,
+        )
+        for bond in bonds[:14]:
+            target = self.simulation.state.entities.get(bond.target_id)
+            if not target:
+                continue
+            y += 22
+            color = self._relationship_color(bond.label)
+            self._text(f"{target.name}: {bond.label}", left + 16, y, size=15, color=color)
+            y += 16
+            self._text(
+                f"Aff {bond.affinity:.0f}  Fid {bond.trust:.0f}  "
+                f"Attr {bond.attraction:.0f}  Paura {bond.fear:.0f}",
+                left + 26,
+                y,
+                size=13,
+                color=(175, 185, 195),
+            )
+
+    @staticmethod
+    def _relationship_color(relationship: str) -> tuple[int, int, int]:
+        return {
+            "love": (255, 80, 155),
+            "family": (90, 175, 255),
+            "friend": (80, 220, 130),
+            "hate": (245, 55, 55),
+            "fear": (155, 80, 200),
+            "rival": (245, 145, 55),
+            "faction_rival": (245, 110, 55),
+            "mentor": (190, 135, 255),
+            "student": (155, 125, 220),
+            "partner": (245, 115, 180),
+            "faction_ally": (80, 185, 180),
+            "acquaintance": (105, 120, 135),
+        }.get(relationship, (120, 130, 145))
 
     @staticmethod
     def _hue_color(hue: int, *, saturation: int, value: int) -> tuple[int, int, int]:

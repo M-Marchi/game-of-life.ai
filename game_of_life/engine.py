@@ -17,6 +17,7 @@ from game_of_life.models import (
     Faction,
     Position,
     Profession,
+    SocialBond,
     Temperament,
     WorldEvent,
     WorldState,
@@ -296,6 +297,22 @@ class Simulation:
             return Action(ActionType.ATTACK, enemy.id, explanation="I will fight for my faction")
 
         nearby = self._nearby_humans(actor, 60)
+        romantic = max(
+            nearby,
+            key=lambda human: self._social_bond(actor, human).attraction,
+            default=None,
+        )
+        if (
+            romantic
+            and self._social_bond(actor, romantic).attraction >= 28
+            and temperament.sociability + temperament.risk_tolerance > 0.9
+        ):
+            actor.decision_lock_ticks = 50
+            return Action(
+                ActionType.EXPRESS_AFFECTION,
+                romantic.id,
+                explanation="I want them to know how much they mean to me",
+            )
         disliked = next(
             (human for human in nearby if actor.relationships.get(human.id, 0) < -10), None
         )
@@ -603,6 +620,8 @@ class Simulation:
             self._inspire(actor, target)
         elif action.kind == ActionType.BEAUTIFY:
             self._beautify(actor, target)
+        elif action.kind == ActionType.EXPRESS_AFFECTION:
+            self._express_affection(actor, target)
 
     def _move(self, actor: Entity, target: Entity | None) -> None:
         if not target or not target.alive:
@@ -724,8 +743,10 @@ class Simulation:
             emotion=memory.emotion,
             participants=[actor.id],
         )
-        actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 6
-        target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 8
+        self._update_bond(actor, target, affinity=6, trust=5, familiarity=8, event="shared a story")
+        self._update_bond(
+            target, actor, affinity=8, trust=7, respect=4, familiarity=8, event="heard a story"
+        )
         target.values["community"] = min(100, target.values.get("community", 50) + 2)
         target.self_awareness = min(100, target.self_awareness + 0.4)
         actor.decision_lock_ticks = 0
@@ -761,6 +782,26 @@ class Simulation:
             participants=[actor.id],
         )
         actor.reputation = min(100, actor.reputation + 1)
+        self._update_bond(
+            actor,
+            target,
+            affinity=3,
+            trust=3,
+            respect=2,
+            familiarity=5,
+            event="taught a skill",
+            add_roles=("student",),
+        )
+        self._update_bond(
+            target,
+            actor,
+            affinity=5,
+            trust=6,
+            respect=10,
+            familiarity=5,
+            event="learned a skill",
+            add_roles=("mentor",),
+        )
         self._adapt_temperament(target, valence=1, intensity=0.3, source="learning")
         actor.action_cooldown = 35
         actor.decision_lock_ticks = 0
@@ -771,7 +812,15 @@ class Simulation:
             return
         assert target is not None
         previous = actor.relationships.get(target.id, 0)
-        actor.relationships[target.id] = min(10, previous + 25)
+        self._update_bond(
+            actor,
+            target,
+            affinity=min(25, 10 - previous),
+            trust=12,
+            fear=-15,
+            familiarity=2,
+            event="chose forgiveness",
+        )
         actor.mood = "calm"
         actor.remember(
             f"I chose to forgive {target.name}",
@@ -890,8 +939,18 @@ class Simulation:
             del target.aspirations[:-5]
         if target.self_awareness > 45 and target.confidence > 55:
             self._evolve_goal(target)
-        actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 4
-        target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 7
+        self._update_bond(
+            actor, target, affinity=4, respect=3, familiarity=4, event="offered inspiration"
+        )
+        self._update_bond(
+            target,
+            actor,
+            affinity=7,
+            trust=6,
+            respect=7,
+            familiarity=4,
+            event="felt inspired",
+        )
         target.remember(
             f"{actor.name} inspired me to value {strongest_value}",
             tick=self.state.tick,
@@ -920,6 +979,72 @@ class Simulation:
         actor.action_cooldown = 45
         actor.decision_lock_ticks = 45
         self.emit("beautify", actor.id, target.id, beauty=round(target.beauty, 1))
+
+    def _express_affection(self, actor: Entity, target: Entity | None) -> None:
+        if actor.action_cooldown:
+            actor.decision_lock_ticks = 0
+            return
+        if not self._approach_interaction(actor, target, 18, EntityKind.HUMAN):
+            return
+        assert target is not None
+        target_bond = self._social_bond(target, actor)
+        acceptance = (
+            0.3
+            + target_bond.attraction / 160
+            + target_bond.trust / 240
+            + target.temperament.empathy * 0.2
+        )
+        accepted = self.random.random() < max(0.08, min(0.92, acceptance))
+        self._update_bond(
+            actor,
+            target,
+            affinity=6 if accepted else -2,
+            trust=4 if accepted else -1,
+            attraction=10,
+            respect=2,
+            familiarity=5,
+            event="expressed affection",
+        )
+        if accepted:
+            reciprocal = self._update_bond(
+                target,
+                actor,
+                affinity=7,
+                trust=5,
+                attraction=8,
+                respect=2,
+                familiarity=5,
+                event="returned affection",
+            )
+            actor.mood = target.mood = "hopeful"
+            actor.remember(
+                f"{target.name} returned my affection",
+                tick=self.state.tick,
+                category="love",
+                importance=0.84 if reciprocal.label == "love" else 0.7,
+                emotion="hopeful",
+                participants=[target.id],
+            )
+        else:
+            self._update_bond(
+                target,
+                actor,
+                affinity=-2,
+                trust=-1,
+                familiarity=3,
+                event="declined affection",
+            )
+            actor.mood = "sad"
+            actor.stress = min(100, actor.stress + 4)
+        actor.action_cooldown = 45
+        actor.decision_lock_ticks = 0
+        self.emit(
+            "affection",
+            actor.id,
+            target.id,
+            accepted=accepted,
+            relationship=self._social_bond(actor, target).label,
+        )
 
     def _wander(self, actor: Entity) -> None:
         actor.position.x = min(
@@ -982,6 +1107,25 @@ class Simulation:
         damage = max(1.0, actor.attack - target.defense)
         target.health -= damage
         actor.action_cooldown = 10
+        if target.kind == EntityKind.HUMAN:
+            self._update_bond(
+                actor,
+                target,
+                affinity=-8,
+                trust=-10,
+                respect=2,
+                familiarity=3,
+                event="attacked",
+            )
+            self._update_bond(
+                target,
+                actor,
+                affinity=-14,
+                trust=-16,
+                fear=14,
+                familiarity=5,
+                event="was attacked",
+            )
         self.emit("attack", actor.id, target.id, damage=round(damage, 2))
         if target.health <= 0:
             self._kill(target, actor)
@@ -996,7 +1140,16 @@ class Simulation:
             killer.kills += 1
             killer.reputation -= 6
             for human in self.state.living(EntityKind.HUMAN):
-                human.relationships[killer.id] = human.relationships.get(killer.id, 0) - 20
+                if human.id != killer.id:
+                    self._update_bond(
+                        human,
+                        killer,
+                        affinity=-20,
+                        trust=-18,
+                        fear=18,
+                        familiarity=4,
+                        event="witnessed a killing",
+                    )
             killer_faction = self.state.factions.get(killer.faction_id or "")
             target_faction = self.state.factions.get(target.faction_id or "")
             if killer_faction and target_faction and target_faction.id in killer_faction.rivals:
@@ -1047,11 +1200,26 @@ class Simulation:
         relationship_change = -12 if argumentative else 2 + round(compatibility * 5)
         actor.social = min(100, actor.social + 18)
         target.social = min(100, target.social + 10)
-        actor.relationships[target.id] = max(
-            -100, min(100, actor.relationships.get(target.id, 0) + relationship_change)
+        attraction_gain = 0 if argumentative else max(0, compatibility * 3 - 0.6)
+        self._update_bond(
+            actor,
+            target,
+            affinity=relationship_change,
+            trust=-8 if argumentative else compatibility * 2.5,
+            attraction=attraction_gain,
+            respect=-2 if argumentative else compatibility,
+            familiarity=5,
+            event="argued" if argumentative else "talked",
         )
-        target.relationships[actor.id] = max(
-            -100, min(100, target.relationships.get(actor.id, 0) + relationship_change)
+        self._update_bond(
+            target,
+            actor,
+            affinity=relationship_change,
+            trust=-8 if argumentative else compatibility * 2.5,
+            attraction=attraction_gain,
+            respect=-2 if argumentative else compatibility,
+            familiarity=5,
+            event="argued" if argumentative else "talked",
         )
         topic = max(actor.values, key=actor.values.get, default="survival")
         influenced_trait = max(
@@ -1163,8 +1331,95 @@ class Simulation:
             child.faction_id = actor.faction_id if actor.faction_id == target.faction_id else None
             if child.faction_id:
                 self.state.factions[child.faction_id].members.append(child.id)
-            actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 10
-            target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 10
+            self._update_bond(
+                actor,
+                target,
+                affinity=10,
+                trust=12,
+                attraction=20,
+                familiarity=8,
+                event="became parents",
+                add_roles=("partner",),
+            )
+            self._update_bond(
+                target,
+                actor,
+                affinity=10,
+                trust=12,
+                attraction=20,
+                familiarity=8,
+                event="became parents",
+                add_roles=("partner",),
+            )
+            self._update_bond(
+                actor,
+                child,
+                affinity=70,
+                trust=45,
+                attraction=0,
+                respect=20,
+                familiarity=40,
+                event="child was born",
+                add_roles=("child",),
+            )
+            self._update_bond(
+                target,
+                child,
+                affinity=70,
+                trust=45,
+                respect=20,
+                familiarity=40,
+                event="child was born",
+                add_roles=("child",),
+            )
+            self._update_bond(
+                child,
+                actor,
+                affinity=65,
+                trust=55,
+                respect=25,
+                familiarity=40,
+                event="born to parent",
+                add_roles=("parent",),
+            )
+            self._update_bond(
+                child,
+                target,
+                affinity=65,
+                trust=55,
+                respect=25,
+                familiarity=40,
+                event="born to parent",
+                add_roles=("parent",),
+            )
+            sibling_ids = {
+                bond.target_id
+                for parent in (actor, target)
+                for bond in parent.social_bonds.values()
+                if "child" in bond.roles and bond.target_id != child.id
+            }
+            for sibling_id in sibling_ids:
+                sibling = self.state.entities.get(sibling_id)
+                if not sibling or not sibling.alive:
+                    continue
+                self._update_bond(
+                    child,
+                    sibling,
+                    affinity=45,
+                    trust=30,
+                    familiarity=25,
+                    event="born as siblings",
+                    add_roles=("sibling",),
+                )
+                self._update_bond(
+                    sibling,
+                    child,
+                    affinity=45,
+                    trust=30,
+                    familiarity=25,
+                    event="became siblings",
+                    add_roles=("sibling",),
+                )
         else:
             if len(self.state.living(EntityKind.COW)) >= self.config.max_cows:
                 return
@@ -1324,8 +1579,18 @@ class Simulation:
             target.health = min(100, target.health + healing)
             actor.skills["healing"] = actor.skills.get("healing", 0) + 0.2
             actor.knowledge["healing"] = actor.knowledge.get("healing", 0) + 0.08
-            actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 5
-            target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 8
+            self._update_bond(
+                actor, target, affinity=5, trust=4, respect=3, familiarity=4, event="provided care"
+            )
+            self._update_bond(
+                target,
+                actor,
+                affinity=8,
+                trust=10,
+                respect=7,
+                familiarity=5,
+                event="received care",
+            )
             target.remember(
                 f"{actor.name} treated my wounds",
                 tick=self.state.tick,
@@ -1351,8 +1616,18 @@ class Simulation:
             return
         actor.inventory[resource] -= 1
         target.inventory[resource] = target.inventory.get(resource, 0) + 1
-        actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 8
-        target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 12
+        self._update_bond(
+            actor, target, affinity=8, trust=5, respect=3, familiarity=3, event="offered help"
+        )
+        self._update_bond(
+            target,
+            actor,
+            affinity=12,
+            trust=12,
+            respect=6,
+            familiarity=4,
+            event="received help",
+        )
         actor.reputation = min(100, actor.reputation + 2)
         actor.mood = "hopeful"
         target.remember(
@@ -1382,8 +1657,23 @@ class Simulation:
         actor.inventory[resource] = actor.inventory.get(resource, 0) + 1
         detected = self.random.random() > actor.temperament.risk_tolerance * 0.55
         if detected:
-            target.relationships[actor.id] = target.relationships.get(actor.id, 0) - 28
-            actor.relationships[target.id] = actor.relationships.get(target.id, 0) - 8
+            self._update_bond(
+                target,
+                actor,
+                affinity=-28,
+                trust=-35,
+                fear=6,
+                familiarity=5,
+                event="was robbed",
+            )
+            self._update_bond(
+                actor,
+                target,
+                affinity=-8,
+                trust=-6,
+                familiarity=3,
+                event="stole from",
+            )
             actor.reputation = max(-100, actor.reputation - 5)
             target.mood = "angry"
             target.remember(
@@ -1464,6 +1754,26 @@ class Simulation:
             target.faction_id = faction.id
             faction.members.append(target.id)
             target.goal = f"help {faction.name} prosper"
+            self._update_bond(
+                actor,
+                target,
+                affinity=6,
+                trust=5,
+                respect=4,
+                familiarity=5,
+                event="recruited into faction",
+                add_roles=("faction_ally",),
+            )
+            self._update_bond(
+                target,
+                actor,
+                affinity=8,
+                trust=7,
+                respect=9,
+                familiarity=5,
+                event="joined faction",
+                add_roles=("faction_ally",),
+            )
             target.remember(
                 f"I joined {faction.name} at {actor.name}'s invitation",
                 tick=self.state.tick,
@@ -1474,7 +1784,14 @@ class Simulation:
             )
             self.emit("recruit", actor.id, target.id, faction_id=faction.id, accepted=True)
         else:
-            target.relationships[actor.id] = relationship - 3
+            self._update_bond(
+                target,
+                actor,
+                affinity=-3,
+                trust=-2,
+                familiarity=2,
+                event="rejected recruitment",
+            )
             self.emit("recruit", actor.id, target.id, faction_id=faction.id, accepted=False)
         actor.decision_lock_ticks = 0
 
@@ -1491,6 +1808,27 @@ class Simulation:
             other.rivals.append(own.id)
         actor.mood = "angry"
         actor.goal = f"defeat {other.name}"
+        self._update_bond(
+            actor,
+            target,
+            affinity=-25,
+            trust=-20,
+            respect=3,
+            fear=5,
+            familiarity=5,
+            event="declared faction war",
+            add_roles=("faction_rival",),
+        )
+        self._update_bond(
+            target,
+            actor,
+            affinity=-25,
+            trust=-20,
+            fear=8,
+            familiarity=5,
+            event="became a faction enemy",
+            add_roles=("faction_rival",),
+        )
         for member_id in own.members:
             member = self.state.entities.get(member_id)
             if member and member.alive:
@@ -1518,6 +1856,26 @@ class Simulation:
         if self.random.random() < max(0.15, min(0.85, acceptance / 2)):
             own.rivals = [item for item in own.rivals if item != other.id]
             other.rivals = [item for item in other.rivals if item != own.id]
+            self._update_bond(
+                actor,
+                target,
+                affinity=18,
+                trust=12,
+                fear=-8,
+                familiarity=3,
+                event="made peace",
+                remove_roles=("faction_rival",),
+            )
+            self._update_bond(
+                target,
+                actor,
+                affinity=12,
+                trust=10,
+                fear=-6,
+                familiarity=3,
+                event="accepted peace",
+                remove_roles=("faction_rival",),
+            )
             self.emit("peace_made", actor.id, target.id, factions=[own.id, other.id])
         else:
             self.emit("peace_rejected", actor.id, target.id, factions=[own.id, other.id])
@@ -1987,6 +2345,7 @@ class Simulation:
             ActionType.TEACH,
             ActionType.FORGIVE,
             ActionType.INSPIRE,
+            ActionType.EXPRESS_AFFECTION,
         }
         if action.kind in human_targets and (not target or target.kind != EntityKind.HUMAN):
             return "action requires a human target"
@@ -2063,6 +2422,26 @@ class Simulation:
                     "profession": entity.profession if entity.kind == EntityKind.HUMAN else None,
                     "faction_id": entity.faction_id,
                     "relationship": round(actor.relationships.get(entity.id, 0), 1),
+                    "relationship_type": (
+                        actor.social_bonds[entity.id].label
+                        if entity.id in actor.social_bonds
+                        else "stranger"
+                    ),
+                    "trust": (
+                        round(actor.social_bonds[entity.id].trust, 1)
+                        if entity.id in actor.social_bonds
+                        else 0
+                    ),
+                    "attraction": (
+                        round(actor.social_bonds[entity.id].attraction, 1)
+                        if entity.id in actor.social_bonds
+                        else 0
+                    ),
+                    "fear": (
+                        round(actor.social_bonds[entity.id].fear, 1)
+                        if entity.id in actor.social_bonds
+                        else 0
+                    ),
                     "health": round(entity.health, 1),
                     "mood": entity.mood if entity.kind == EntityKind.HUMAN else None,
                     "goal": entity.goal if entity.kind == EntityKind.HUMAN else None,
@@ -2129,6 +2508,7 @@ class Simulation:
                 "self_care": "express identity by visibly changing style and accessory",
                 "inspire": "share a value and aspiration with a nearby human",
                 "beautify": "an artist improves a nearby building and its visual appearance",
+                "express_affection": "reveal affection to someone; it may be returned or declined",
             },
             "legal_actions": self._legal_actions_for(actor, nearby_entities),
         }
@@ -2165,6 +2545,7 @@ class Simulation:
                     ActionType.STEAL,
                     ActionType.ATTACK,
                     ActionType.INSPIRE,
+                    ActionType.EXPRESS_AFFECTION,
                 }
             )
             if actor.long_term_memory:
@@ -2547,3 +2928,96 @@ class Simulation:
         return sum(
             human.inventory.get(resource, 0) for human in self.state.living(EntityKind.HUMAN)
         )
+
+    def _social_bond(self, actor: Entity, target: Entity) -> SocialBond:
+        bond = actor.social_bonds.get(target.id)
+        if bond is None:
+            bond = SocialBond(
+                target_id=target.id,
+                affinity=actor.relationships.get(target.id, 0.0),
+            )
+            actor.social_bonds[target.id] = bond
+        return bond
+
+    def _update_bond(
+        self,
+        actor: Entity,
+        target: Entity,
+        *,
+        affinity: float = 0,
+        trust: float = 0,
+        attraction: float = 0,
+        respect: float = 0,
+        fear: float = 0,
+        familiarity: float = 0,
+        event: str,
+        add_roles: tuple[str, ...] = (),
+        remove_roles: tuple[str, ...] = (),
+    ) -> SocialBond:
+        bond = self._social_bond(actor, target)
+        previous_label = bond.label
+        bond.affinity = max(-100, min(100, bond.affinity + affinity))
+        bond.trust = max(-100, min(100, bond.trust + trust))
+        bond.attraction = max(-100, min(100, bond.attraction + attraction))
+        bond.respect = max(-100, min(100, bond.respect + respect))
+        bond.fear = max(0, min(100, bond.fear + fear))
+        bond.familiarity = max(0, min(100, bond.familiarity + familiarity))
+        bond.interaction_count += 1
+        bond.last_interaction_tick = self.state.tick
+        for role in remove_roles:
+            bond.roles = [item for item in bond.roles if item != role]
+        for role in add_roles:
+            if role not in bond.roles:
+                bond.roles.append(role)
+        bond.history.append(f"[{self.state.tick}] {event}")
+        del bond.history[:-12]
+        actor.relationships[target.id] = bond.affinity
+        if previous_label != bond.label:
+            self.emit(
+                "relationship_changed",
+                actor.id,
+                target.id,
+                previous=previous_label,
+                relationship=bond.label,
+                affinity=round(bond.affinity, 1),
+                trust=round(bond.trust, 1),
+                attraction=round(bond.attraction, 1),
+            )
+        return bond
+
+    def social_graph(self) -> dict[str, list[dict[str, object]]]:
+        humans = {human.id: human for human in self.state.living(EntityKind.HUMAN)}
+        nodes = [
+            {
+                "id": human.id,
+                "name": human.name,
+                "profession": str(human.profession),
+                "faction_id": human.faction_id,
+                "x": round(human.position.x, 2),
+                "y": round(human.position.y, 2),
+            }
+            for human in humans.values()
+        ]
+        edges = []
+        for source in humans.values():
+            for target_id, bond in source.social_bonds.items():
+                if target_id not in humans or bond.label == "stranger":
+                    continue
+                edges.append(
+                    {
+                        "source": source.id,
+                        "target": target_id,
+                        "relationship": bond.label,
+                        "affinity": round(bond.affinity, 2),
+                        "trust": round(bond.trust, 2),
+                        "attraction": round(bond.attraction, 2),
+                        "respect": round(bond.respect, 2),
+                        "fear": round(bond.fear, 2),
+                        "familiarity": round(bond.familiarity, 2),
+                        "interaction_count": bond.interaction_count,
+                        "last_interaction_tick": bond.last_interaction_tick,
+                        "roles": list(bond.roles),
+                        "history": list(bond.history),
+                    }
+                )
+        return {"nodes": nodes, "edges": edges}

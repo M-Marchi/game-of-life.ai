@@ -17,12 +17,13 @@ from game_of_life.models import (
     Faction,
     MemoryEntry,
     Position,
+    SocialBond,
     Temperament,
     WorldEvent,
     WorldState,
 )
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class WorldStore:
@@ -71,6 +72,29 @@ class WorldStore:
             CREATE INDEX IF NOT EXISTS idx_mental_states_tick ON mental_states(tick);
             CREATE INDEX IF NOT EXISTS idx_mental_states_profession
                 ON mental_states(profession, tick);
+            CREATE TABLE IF NOT EXISTS social_edges (
+                tick INTEGER NOT NULL,
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relationship TEXT NOT NULL,
+                affinity REAL NOT NULL,
+                trust REAL NOT NULL,
+                attraction REAL NOT NULL,
+                respect REAL NOT NULL,
+                fear REAL NOT NULL,
+                familiarity REAL NOT NULL,
+                interaction_count INTEGER NOT NULL,
+                last_interaction_tick INTEGER NOT NULL,
+                roles_json TEXT NOT NULL,
+                edge_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source_id, target_id, tick)
+            );
+            CREATE INDEX IF NOT EXISTS idx_social_edges_tick ON social_edges(tick);
+            CREATE INDEX IF NOT EXISTS idx_social_edges_relationship
+                ON social_edges(relationship, tick);
+            CREATE INDEX IF NOT EXISTS idx_social_edges_target
+                ON social_edges(target_id, tick);
             CREATE TABLE IF NOT EXISTS rule_versions (
                 rule_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -158,6 +182,10 @@ class WorldStore:
                 "knowledge": human.knowledge,
                 "skills": human.skills,
                 "relationships": human.relationships,
+                "social_bonds": {
+                    target_id: {**asdict(bond), "relationship": bond.label}
+                    for target_id, bond in human.social_bonds.items()
+                },
                 "needs": {
                     "health": round(human.health, 3),
                     "hunger": round(human.hunger, 3),
@@ -190,12 +218,54 @@ class WorldStore:
             ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
+        self.save_social_graph(simulation, commit=False)
         self.connection.commit()
+
+    def save_social_graph(self, simulation: Simulation, *, commit: bool = True) -> None:
+        graph = simulation.social_graph()
+        rows = [
+            (
+                simulation.state.tick,
+                edge["source"],
+                edge["target"],
+                edge["relationship"],
+                edge["affinity"],
+                edge["trust"],
+                edge["attraction"],
+                edge["respect"],
+                edge["fear"],
+                edge["familiarity"],
+                edge["interaction_count"],
+                edge["last_interaction_tick"],
+                json.dumps(edge["roles"], sort_keys=True),
+                json.dumps({**edge, "tick": simulation.state.tick}, sort_keys=True),
+            )
+            for edge in graph["edges"]
+        ]
+        self.connection.executemany(
+            "INSERT OR REPLACE INTO social_edges("
+            "tick, source_id, target_id, relationship, affinity, trust, attraction, respect, "
+            "fear, familiarity, interaction_count, last_interaction_tick, roles_json, edge_json) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        if commit:
+            self.connection.commit()
 
     def mental_history(self, entity_id: str, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             "SELECT mental_json FROM mental_states WHERE entity_id = ? ORDER BY tick DESC LIMIT ?",
             (entity_id, limit),
+        ).fetchall()
+        return [json.loads(row[0]) for row in reversed(rows)]
+
+    def social_history(
+        self, source_id: str, target_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT edge_json FROM social_edges WHERE source_id = ? AND target_id = ? "
+            "ORDER BY tick DESC LIMIT ?",
+            (source_id, target_id, limit),
         ).fetchall()
         return [json.loads(row[0]) for row in reversed(rows)]
 
@@ -274,6 +344,10 @@ def _world_from_dict(data: dict[str, Any]) -> WorldState:
         item["long_term_memory"] = [
             MemoryEntry(**memory) for memory in item.get("long_term_memory", [])
         ]
+        item["social_bonds"] = {
+            target_id: SocialBond(**bond)
+            for target_id, bond in item.get("social_bonds", {}).items()
+        }
         action = item.get("action", {})
         action["kind"] = ActionType(action.get("kind", ActionType.IDLE))
         item["action"] = Action(**action)

@@ -50,6 +50,7 @@ class AgentIntent(BaseModel):
             ActionType.FORGIVE,
             ActionType.INSPIRE,
             ActionType.BEAUTIFY,
+            ActionType.EXPRESS_AFFECTION,
         }
         if self.action in target_actions and not self.target_id:
             raise ValueError(f"{self.action} requires target_id")
@@ -160,7 +161,9 @@ class OllamaAIClient:
             "You embody one autonomous inhabitant in an emergent society sandbox. Make a bold, "
             "character-specific decision, not the universally safest decision. The inhabitant has "
             "an evolving identity: weigh values, stress, confidence, self-awareness, aspirations, "
-            "knowledge, appearance, vocation satisfaction, memories, and relationships. Let them "
+            "knowledge, appearance, vocation satisfaction, memories, and multidimensional social "
+            "bonds. Love, friendship, family, mentorship, rivalry, fear, and hatred must influence "
+            "choices. Let them "
             "seek meaning, study, improve themselves, care for their appearance, inspire others, "
             "or beautify their home and settlement. Treat hunger or "
             "thirst as urgent only above 75; below that, pursue personality, long-term goals, "
@@ -175,8 +178,8 @@ class OllamaAIClient:
             "achievements influence the choice. Set a concise persistent goal and current mood. "
             "Never invent entity IDs. Targeted actions MOVE, DRINK, GATHER, "
             "ATTACK, TALK, MATE, TRADE, HELP, STEAL, RECRUIT, DECLARE_WAR, MAKE_PEACE, and "
-            "SABOTAGE, TELL_STORY, TEACH, FORGIVE, INSPIRE, and BEAUTIFY require a compatible "
-            "target_id copied "
+            "SABOTAGE, TELL_STORY, TEACH, FORGIVE, INSPIRE, BEAUTIFY, and EXPRESS_AFFECTION "
+            "require a compatible target_id copied "
             "exactly from a nearby entity. FORM_FACTION, EXPLORE, INNOVATE, REFLECT, and SLEEP "
             "as well as STUDY and SELF_CARE do not require a target. Return only data matching "
             "the JSON schema. For non-targeted actions set target_id=null. The explanation must "
@@ -377,6 +380,23 @@ def _entity_context(entity: Entity) -> dict[str, Any]:
         "inventory": entity.inventory,
         "skills": {key: round(value, 2) for key, value in entity.skills.items()},
         "knowledge": {key: round(value, 2) for key, value in entity.knowledge.items()},
+        "social_bonds": [
+            {
+                "target_id": bond.target_id,
+                "relationship": bond.label,
+                "affinity": round(bond.affinity, 1),
+                "trust": round(bond.trust, 1),
+                "attraction": round(bond.attraction, 1),
+                "respect": round(bond.respect, 1),
+                "fear": round(bond.fear, 1),
+                "roles": bond.roles,
+            }
+            for bond in sorted(
+                entity.social_bonds.values(),
+                key=lambda item: abs(item.affinity) + abs(item.trust) + item.attraction + item.fear,
+                reverse=True,
+            )[:10]
+        ],
         "short_term_memory": [
             {
                 "id": memory.id,

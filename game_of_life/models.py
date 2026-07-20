@@ -45,6 +45,7 @@ class ActionType(StrEnum):
     SELF_CARE = "self_care"
     INSPIRE = "inspire"
     BEAUTIFY = "beautify"
+    EXPRESS_AFFECTION = "express_affection"
 
 
 class AgentState(StrEnum):
@@ -129,6 +130,52 @@ class MemoryEntry:
 
 
 @dataclass(slots=True)
+class SocialBond:
+    target_id: str
+    affinity: float = 0.0
+    trust: float = 0.0
+    attraction: float = 0.0
+    respect: float = 0.0
+    fear: float = 0.0
+    familiarity: float = 0.0
+    interaction_count: int = 0
+    last_interaction_tick: int = 0
+    roles: list[str] = field(default_factory=list)
+    history: list[str] = field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        role_priority = (
+            "parent",
+            "child",
+            "sibling",
+            "partner",
+            "mentor",
+            "student",
+            "faction_ally",
+            "faction_rival",
+        )
+        role = next((item for item in role_priority if item in self.roles), None)
+        if role in {"parent", "child", "sibling"}:
+            return "family"
+        if self.attraction >= 65 and self.trust >= 35 and self.affinity >= 35:
+            return "love"
+        if self.affinity <= -55 or self.trust <= -45:
+            return "hate"
+        if self.fear >= 60 and self.affinity < 0:
+            return "fear"
+        if role:
+            return role
+        if self.affinity <= -25:
+            return "rival"
+        if self.trust >= 45 and self.affinity >= 40:
+            return "friend"
+        if self.interaction_count > 0 or self.familiarity > 0:
+            return "acquaintance"
+        return "stranger"
+
+
+@dataclass(slots=True)
 class Entity:
     id: str
     kind: EntityKind
@@ -153,6 +200,7 @@ class Entity:
     knowledge: dict[str, float] = field(default_factory=dict)
     values: dict[str, float] = field(default_factory=dict)
     relationships: dict[str, float] = field(default_factory=dict)
+    social_bonds: dict[str, SocialBond] = field(default_factory=dict)
     short_term_memory: list[MemoryEntry] = field(default_factory=list)
     long_term_memory: list[MemoryEntry] = field(default_factory=list)
     dreams: list[str] = field(default_factory=list)

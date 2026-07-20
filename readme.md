@@ -20,6 +20,7 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
   socialità e fiducia;
 - identità individuale con valori, aspirazioni, autoconsapevolezza, crescita, fiducia e stress;
 - temperamenti ereditabili ma plastici: esperienze, traumi e relazioni li modificano nel tempo;
+- grafo sociale persistente con amicizie, amori, odi, paura, famiglia, mentori e rivalità;
 - fazioni, reclutamento, guerre, successione dei leader, pace e dissoluzione dei gruppi;
 - azioni emergenti come aiutare, rubare, esplorare, innovare, sabotare, riflettere, raccontare,
   insegnare, studiare, ispirare, curarsi, abbellire e perdonare;
@@ -54,6 +55,7 @@ Comandi UI:
 - clic su un'entità: apre l'inspector;
 - `Spazio`: pausa/riprendi;
 - `+` e `-`: velocità della simulazione.
+- `G`: mostra/nasconde il grafo sociale sovrapposto al mondo.
 
 Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite; durante il sonno mostrano `zZ` e
 durante i sogni `*`. Ogni agente ha uno sprite personale: colore, abito e accessorio cambiano quando
@@ -99,6 +101,22 @@ ORDER BY tick;
 ```
 
 Il documento completo del campione è disponibile in `mental_json`.
+
+Lo stesso campionamento salva il grafo diretto delle conoscenze in `social_edges`. Ogni verso della
+relazione mantiene affinità, fiducia, attrazione, rispetto, paura, familiarità, ruoli e numero di
+interazioni: due persone possono quindi percepire il loro rapporto in modo diverso. La sua evoluzione
+si può interrogare direttamente:
+
+```sql
+SELECT tick, source_id, target_id, relationship,
+       affinity, trust, attraction, respect, fear, familiarity, interaction_count
+FROM social_edges
+WHERE source_id = 'human-000120'
+ORDER BY tick, target_id;
+```
+
+I valori correnti sono inclusi anche nello stato mentale del personaggio, mentre `edge_json` conserva
+ruoli e cronologia sintetica delle interazioni.
 
 Esecuzione deterministica senza Pygame o Ollama:
 

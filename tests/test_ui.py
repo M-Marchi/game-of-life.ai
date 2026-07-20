@@ -21,6 +21,12 @@ def test_pygame_can_render_headless(empty_config, monkeypatch) -> None:
         )
         ui = SimulationUI(simulation, screen, selected_id=human.id)
         ui.draw()
+        from game_of_life.models import Position
+
+        other = simulation.spawn_human(position=Position(human.position.x + 2, human.position.y))
+        simulation._talk(human, other)
+        ui.graph_mode = True
+        ui.draw()
         assert screen.get_size() == (
             empty_config.width + empty_config.panel_width,
             empty_config.height,
