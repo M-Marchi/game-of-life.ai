@@ -27,7 +27,14 @@ def test_headless_cli_can_save_and_resume(tmp_path) -> None:
     with WorldStore(save_path) as store:
         events = store.recent_events()
         restored = store.load_latest(load_config(ai_enabled=False))
+        mental_ticks = [
+            row[0]
+            for row in store.connection.execute(
+                "SELECT DISTINCT tick FROM mental_states ORDER BY tick"
+            )
+        ]
     assert save_path.exists()
     assert isinstance(events, list)
     assert restored is not None
     assert restored.state.tick == 15
+    assert mental_ticks == [0, 10, 15]

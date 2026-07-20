@@ -63,3 +63,63 @@ def test_ai_action_and_target_are_directly_queryable(empty_config, tmp_path) -> 
         ).fetchone()
 
     assert row == ("talk", actor.id, target.id)
+
+
+def test_mental_history_preserves_identity_and_memories(empty_config, tmp_path) -> None:
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human()
+    human.remember(
+        "I discovered what kind of person I want to become",
+        tick=0,
+        category="identity",
+        importance=0.9,
+        emotion="hopeful",
+    )
+    human.consolidate_memories(0)
+    human.last_dream = "A door opened onto a library."
+    human.dreams.append(human.last_dream)
+
+    with WorldStore(tmp_path / "world.db") as store:
+        store.save_mental_states(simulation)
+        human.stress = 42
+        human.goal = "study the history of my community"
+        simulation.state.tick = 120
+        store.save_mental_states(simulation)
+        history = store.mental_history(human.id)
+        row = store.connection.execute(
+            "SELECT profession, mood, goal, self_awareness, stress "
+            "FROM mental_states WHERE entity_id = ? AND tick = 120",
+            (human.id,),
+        ).fetchone()
+
+    assert [state["tick"] for state in history] == [0, 120]
+    assert history[0]["long_term_memory"][0]["category"] == "identity"
+    assert history[0]["dreams"] == ["A door opened onto a library."]
+    assert history[1]["stress"] == 42
+    assert row == (
+        str(human.profession),
+        human.mood,
+        "study the history of my community",
+        human.self_awareness,
+        42,
+    )
+
+
+def test_mental_states_are_sampled_at_configured_interval(empty_config, tmp_path) -> None:
+    from game_of_life.main import _run_headless
+
+    empty_config.mental_snapshot_interval_ticks = 2
+    simulation = Simulation(empty_config)
+    simulation.spawn_human()
+    with WorldStore(tmp_path / "world.db") as store:
+        store.save_mental_states(simulation)
+        _run_headless(simulation, 5, store)
+        store.save_mental_states(simulation)
+        ticks = [
+            row[0]
+            for row in store.connection.execute(
+                "SELECT DISTINCT tick FROM mental_states ORDER BY tick"
+            )
+        ]
+
+    assert ticks == [0, 2, 4, 5]

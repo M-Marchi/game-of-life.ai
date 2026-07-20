@@ -26,7 +26,7 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
 - crisi ambientali periodiche: siccità, incendi, epidemie, raccolti e boom minerari;
 - cognizione ibrida con fallback deterministico;
 - generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
-- snapshot ed event log in SQLite;
+- snapshot del mondo, event log e serie storica degli stati mentali in SQLite;
 - esecuzione headless riproducibile tramite seed.
 
 L'output del modello non viene mai eseguito come codice: tutte le azioni e le regole passano attraverso
@@ -87,6 +87,19 @@ WHERE event_type = 'ai_decision' AND action = 'talk'
 ORDER BY sequence DESC;
 ```
 
+Ogni 3 minuti simulati, e alla chiusura, viene salvato lo stato mentale completo di ogni umano
+nella tabella `mental_states`: valori, temperamento, obiettivi, stress, conoscenze, relazioni,
+ricordi brevi/lunghi e sogni. Le colonne principali restano direttamente interrogabili:
+
+```sql
+SELECT tick, name, profession, mood, goal, self_awareness, stress
+FROM mental_states
+WHERE entity_id = 'human-000120'
+ORDER BY tick;
+```
+
+Il documento completo del campione è disponibile in `mental_json`.
+
 Esecuzione deterministica senza Pygame o Ollama:
 
 ```powershell
@@ -99,6 +112,7 @@ Configurazione tramite variabili d'ambiente:
 - `GOL_OLLAMA_ENDPOINT` (default `http://127.0.0.1:11434`);
 - `GOL_AI_ENABLED` (`true`/`false`);
 - `GOL_SEED`.
+- `GOL_MENTAL_SNAPSHOT_MINUTES` (default `3`, `0` per disabilitare il campionamento periodico).
 
 ## Sviluppo
 

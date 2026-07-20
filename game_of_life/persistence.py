@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from game_of_life.models import (
     WorldState,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class WorldStore:
@@ -54,6 +55,22 @@ class WorldStore:
             );
             CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
             CREATE INDEX IF NOT EXISTS idx_events_actor_action ON events(actor_id, action);
+            CREATE TABLE IF NOT EXISTS mental_states (
+                tick INTEGER NOT NULL,
+                entity_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                profession TEXT NOT NULL,
+                mood TEXT NOT NULL,
+                goal TEXT NOT NULL,
+                self_awareness REAL NOT NULL,
+                stress REAL NOT NULL,
+                mental_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (entity_id, tick)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mental_states_tick ON mental_states(tick);
+            CREATE INDEX IF NOT EXISTS idx_mental_states_profession
+                ON mental_states(profession, tick);
             CREATE TABLE IF NOT EXISTS rule_versions (
                 rule_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -111,6 +128,76 @@ class WorldStore:
             (simulation.state.tick, state_json, rng_json),
         )
         self.connection.commit()
+
+    def save_mental_states(self, simulation: Simulation) -> None:
+        rows = []
+        for human in simulation.state.living(EntityKind.HUMAN):
+            mental_state = {
+                "tick": simulation.state.tick,
+                "entity_id": human.id,
+                "name": human.name,
+                "age_years": round(human.age_years, 4),
+                "state": human.state,
+                "mood": human.mood,
+                "goal": human.goal,
+                "aspirations": human.aspirations,
+                "profession": str(human.profession),
+                "profession_satisfaction": round(human.profession_satisfaction, 3),
+                "temperament": asdict(human.temperament),
+                "values": human.values,
+                "self_awareness": round(human.self_awareness, 3),
+                "growth_drive": round(human.growth_drive, 3),
+                "confidence": round(human.confidence, 3),
+                "stress": round(human.stress, 3),
+                "aesthetic_need": round(human.aesthetic_need, 3),
+                "appearance": {
+                    "style": human.appearance_style,
+                    "hue": human.appearance_hue,
+                    "accessory": human.accessory,
+                },
+                "knowledge": human.knowledge,
+                "skills": human.skills,
+                "relationships": human.relationships,
+                "needs": {
+                    "health": round(human.health, 3),
+                    "hunger": round(human.hunger, 3),
+                    "thirst": round(human.thirst, 3),
+                    "energy": round(human.energy, 3),
+                    "social": round(human.social, 3),
+                },
+                "current_action": asdict(human.action),
+                "short_term_memory": [asdict(memory) for memory in human.short_term_memory],
+                "long_term_memory": [asdict(memory) for memory in human.long_term_memory],
+                "dreams": human.dreams,
+                "last_dream": human.last_dream,
+            }
+            rows.append(
+                (
+                    simulation.state.tick,
+                    human.id,
+                    human.name,
+                    str(human.profession),
+                    human.mood,
+                    human.goal,
+                    human.self_awareness,
+                    human.stress,
+                    json.dumps(mental_state, sort_keys=True),
+                )
+            )
+        self.connection.executemany(
+            "INSERT OR REPLACE INTO mental_states("
+            "tick, entity_id, name, profession, mood, goal, self_awareness, stress, mental_json"
+            ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.connection.commit()
+
+    def mental_history(self, entity_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT mental_json FROM mental_states WHERE entity_id = ? ORDER BY tick DESC LIMIT ?",
+            (entity_id, limit),
+        ).fetchall()
+        return [json.loads(row[0]) for row in reversed(rows)]
 
     def load_latest(
         self, config: SimulationConfig, *, ai_worker: Any = None, innovation_manager: Any = None

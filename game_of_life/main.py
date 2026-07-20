@@ -51,11 +51,13 @@ def main(argv: list[str] | None = None) -> int:
             innovation_manager=innovation_manager,
         )
         simulation.add_event_sink(store.record_event)
+        store.save_mental_states(simulation)
         if args.headless:
             _run_headless(simulation, args.ticks, store)
         else:
             _run_pygame(simulation, store)
         store.save_snapshot(simulation)
+        store.save_mental_states(simulation)
 
     if ai_worker:
         ai_worker.stop()
@@ -85,6 +87,9 @@ def _run_headless(simulation: Simulation, ticks: int, store: WorldStore) -> None
         simulation.step()
         if simulation.state.tick % simulation.config.autosave_interval_ticks == 0:
             store.save_snapshot(simulation)
+        mental_interval = simulation.config.mental_snapshot_interval_ticks
+        if mental_interval and simulation.state.tick % mental_interval == 0:
+            store.save_mental_states(simulation)
 
 
 def _run_pygame(simulation: Simulation, store: WorldStore) -> None:
@@ -111,6 +116,9 @@ def _run_pygame(simulation: Simulation, store: WorldStore) -> None:
             while tick_accumulator >= 1:
                 simulation.step()
                 tick_accumulator -= 1
+                mental_interval = simulation.config.mental_snapshot_interval_ticks
+                if mental_interval and simulation.state.tick % mental_interval == 0:
+                    store.save_mental_states(simulation)
         ui.draw()
         if (
             simulation.state.tick != last_saved_tick

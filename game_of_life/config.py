@@ -35,6 +35,7 @@ class SimulationConfig:
     sleep_duration_ticks: int = 160
     dream_start_ticks: int = 80
     vocation_review_interval_ticks: int = 300
+    mental_snapshot_interval_ticks: int = 1_800
     ai: AIConfig = field(default_factory=AIConfig)
 
 
@@ -43,6 +44,10 @@ def load_config(*, ai_enabled: bool | None = None, seed: int | None = None) -> S
     config.seed = seed if seed is not None else int(os.getenv("GOL_SEED", config.seed))
     config.ai.model = os.getenv("GOL_OLLAMA_MODEL", config.ai.model)
     config.ai.endpoint = os.getenv("GOL_OLLAMA_ENDPOINT", config.ai.endpoint)
+    mental_minutes = float(os.getenv("GOL_MENTAL_SNAPSHOT_MINUTES", "3"))
+    config.mental_snapshot_interval_ticks = max(
+        0, round(mental_minutes * 60 * config.ticks_per_second)
+    )
     if ai_enabled is None:
         value = os.getenv("GOL_AI_ENABLED", "true").lower()
         config.ai.enabled = value not in {"0", "false", "no", "off"}
