@@ -521,7 +521,13 @@ class Simulation:
                 12 if action.kind in {ActionType.MOVE, ActionType.SLEEP} else 0
             )
             entity.remember(f"I decided to {action.kind}: {action.explanation}")
-            self.emit("ai_decision", entity.id, action=action.kind, explanation=action.explanation)
+            self.emit(
+                "ai_decision",
+                entity.id,
+                action.target_id,
+                action=action.kind,
+                explanation=action.explanation,
+            )
 
     def _schedule_ai(self) -> None:
         interval = self.config.ai.decision_interval_ticks

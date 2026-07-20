@@ -50,6 +50,15 @@ Il mondo viene salvato in `saves/world.db`. Per riprendere l'ultimo snapshot:
 uv run game-of-life --load
 ```
 
+Le decisioni AI sono interrogabili direttamente nella tabella SQLite `events`:
+
+```sql
+SELECT tick, actor_id, action, target_id, payload_json
+FROM events
+WHERE event_type = 'ai_decision' AND action = 'talk'
+ORDER BY sequence DESC;
+```
+
 Esecuzione deterministica senza Pygame o Ollama:
 
 ```powershell

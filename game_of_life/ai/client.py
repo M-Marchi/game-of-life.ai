@@ -6,7 +6,7 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from game_of_life.config import AIConfig
 from game_of_life.models import Action, ActionType, Entity
@@ -21,6 +21,19 @@ class AgentIntent(BaseModel):
     resource: str | None = None
     amount: int = Field(default=1, ge=1, le=20)
     explanation: str = Field(min_length=1, max_length=300)
+
+    @model_validator(mode="after")
+    def require_action_arguments(self) -> AgentIntent:
+        target_actions = {
+            ActionType.MOVE,
+            ActionType.ATTACK,
+            ActionType.TALK,
+            ActionType.MATE,
+            ActionType.TRADE,
+        }
+        if self.action in target_actions and not self.target_id:
+            raise ValueError(f"{self.action} requires target_id")
+        return self
 
     def to_action(self) -> Action:
         return Action(
@@ -99,7 +112,9 @@ class OllamaAIClient:
             "You control one inhabitant in a deterministic society simulation. "
             "Choose one legal action from the supplied state. Prefer survival needs, then work "
             "and social goals. Never invent entity IDs. Return only data matching the "
-            "JSON schema.\n"
+            "JSON schema. MOVE, ATTACK, TALK, MATE, and TRADE require target_id copied exactly "
+            "from a compatible nearby entity; never choose them when no target exists. "
+            "\n"
             f"AGENT={json.dumps(_entity_context(entity), ensure_ascii=False)}\n"
             f"WORLD={json.dumps(context, ensure_ascii=False)}"
         )

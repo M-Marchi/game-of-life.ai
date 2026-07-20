@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import json
 
-from game_of_life.ai.client import OllamaAIClient
+import pytest
+from pydantic import ValidationError
+
+from game_of_life.ai.client import AgentIntent, OllamaAIClient
 from game_of_life.config import AIConfig
+from game_of_life.models import ActionType
+
+
+def test_talk_intent_requires_target() -> None:
+    with pytest.raises(ValidationError):
+        AgentIntent(action=ActionType.TALK, explanation="I want to talk")
 
 
 def test_generated_rule_repairs_invalid_first_response(monkeypatch) -> None:

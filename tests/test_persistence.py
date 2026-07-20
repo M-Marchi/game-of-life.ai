@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from game_of_life.engine import Simulation
+from game_of_life.models import ActionType
 from game_of_life.persistence import WorldStore
 
 
@@ -31,3 +32,23 @@ def test_event_log_records_payload(empty_config, tmp_path) -> None:
 
     assert events[-1].event_type == "custom"
     assert events[-1].payload == {"value": 3}
+
+
+def test_ai_action_and_target_are_directly_queryable(empty_config, tmp_path) -> None:
+    simulation = Simulation(empty_config)
+    with WorldStore(tmp_path / "world.db") as store:
+        simulation.add_event_sink(store.record_event)
+        actor = simulation.spawn_human()
+        target = simulation.spawn_human()
+        simulation.emit(
+            "ai_decision",
+            actor.id,
+            target.id,
+            action=ActionType.TALK,
+            explanation="Starting a conversation",
+        )
+        row = store.connection.execute(
+            "SELECT action, actor_id, target_id FROM events WHERE action = 'talk'"
+        ).fetchone()
+
+    assert row == ("talk", actor.id, target.id)

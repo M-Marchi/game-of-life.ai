@@ -17,7 +17,7 @@ from game_of_life.models import (
     WorldState,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class WorldStore:
@@ -43,10 +43,13 @@ class WorldStore:
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                 tick INTEGER NOT NULL,
                 event_type TEXT NOT NULL,
+                action TEXT,
                 actor_id TEXT,
                 target_id TEXT,
                 payload_json TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
+            CREATE INDEX IF NOT EXISTS idx_events_actor_action ON events(actor_id, action);
             CREATE TABLE IF NOT EXISTS rule_versions (
                 rule_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -63,12 +66,16 @@ class WorldStore:
         self.connection.commit()
 
     def record_event(self, event: WorldEvent) -> None:
+        action = event.payload.get("action")
+        if hasattr(action, "value"):
+            action = action.value
         self.connection.execute(
-            "INSERT INTO events(tick, event_type, actor_id, target_id, payload_json) "
-            "VALUES(?, ?, ?, ?, ?)",
+            "INSERT INTO events(tick, event_type, action, actor_id, target_id, payload_json) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
             (
                 event.tick,
                 event.event_type,
+                action,
                 event.actor_id,
                 event.target_id,
                 json.dumps(event.payload, sort_keys=True),
