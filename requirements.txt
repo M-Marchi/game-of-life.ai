@@ -1,9 +1,0 @@
-numpy==1.26.4
-pandas==2.0.2
-loguru~=0.7.2
-black~=24.3.0
-setuptools~=68.2.0
-pygame~=2.6.0
-langchain~=0.2.12
-langchain_community ~=0.2.11
-langchain_ollama ~=0.1.1

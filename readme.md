@@ -1,36 +1,88 @@
 # Game of Life AI
 
-**Disclaimer: This project was started as a summer experiment and has been abandoned upon returning to work.**
+Una sandbox sociale deterministica in cui gli abitanti combinano comportamenti locali e decisioni
+generate da un modello Ollama. La simulazione continua a funzionare anche senza AI; il modello viene
+usato per obiettivi di alto livello e per proporre nuove professioni, ricette, edifici e regole.
 
-## Overview
+## Stato attuale
 
-This repository contains an experimental simulation inspired by the classic "Game of Life," but with a twist: the goal was to create a world where animals and humans interact, with human behavior driven entirely by Large Language Models (LLMs) acting as their "brains."
+Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. Sono disponibili:
 
-## Project Status
+- mondo Pygame con inspector degli agenti, timeline, pausa e controllo della velocità;
+- umani, mucche, alberi, rocce, laghi ed edifici;
+- fame, sete, energia, salute, ciclo vitale e riproduzione;
+- raccolta, inventari, cibo consumabile, combattimento, sonno, dialogo, commercio e costruzione;
+- professioni iniziali e lavoro basato sulle risorse;
+- cognizione ibrida con fallback deterministico;
+- generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
+- snapshot ed event log in SQLite;
+- esecuzione headless riproducibile tramite seed.
 
-This project is currently **inactive**. It was developed during my summer break as a fun and interesting challenge, but due to time constraints and work commitments, I am unable to continue its development for now. If I ever find the time and motivation in the future, I may revisit it, as I still find the idea intriguing.
+L'output del modello non viene mai eseguito come codice: tutte le azioni e le regole passano attraverso
+schemi e validatori.
 
-## Concept
+## Requisiti
 
-- **Humans**: Each human entity in the simulation is controlled by an LLM, making decisions and interacting with the world based on prompts and context.
-- **Animals**: Animals follow simpler, rule-based behaviors.
-- **World**: The simulation features a dynamic environment with trees, lakes, cows, and humans, all rendered using Pygame.
+- [uv](https://docs.astral.sh/uv/)
+- Python 3.12 (può essere gestito direttamente da `uv`)
+- [Ollama](https://ollama.com/) con `qwen3:8b` per le funzioni generative
 
-## Why Abandoned?
+```powershell
+ollama pull qwen3:8b
+uv sync --all-groups
+```
 
-While the concept was promising and led to some interesting results, maintaining and developing such a project requires more time than I can currently dedicate. For now, this repository serves as a record of the experiment and a potential starting point for future work.
+## Avvio
 
-## Getting Started
+```powershell
+uv run game-of-life
+```
 
-> ⚠️ **This project is not actively maintained and may not be fully functional. Use at your own risk.**
+Comandi UI:
 
-### Requirements
+- clic su un'entità: apre l'inspector;
+- `Spazio`: pausa/riprendi;
+- `+` e `-`: velocità della simulazione.
 
-- Python 3.10+
-- See `requirements.txt` for dependencies
+Il mondo viene salvato in `saves/world.db`. Per riprendere l'ultimo snapshot:
 
-### Running the Simulation
+```powershell
+uv run game-of-life --load
+```
 
-```sh
-pip install -r [requirements.txt](http://_vscodecontentref_/0)
-python -m game_of_life.main
+Esecuzione deterministica senza Pygame o Ollama:
+
+```powershell
+uv run game-of-life --headless --no-ai --ticks 10000 --seed 42
+```
+
+Configurazione tramite variabili d'ambiente:
+
+- `GOL_OLLAMA_MODEL` (default `qwen3:8b`);
+- `GOL_OLLAMA_ENDPOINT` (default `http://127.0.0.1:11434`);
+- `GOL_AI_ENABLED` (`true`/`false`);
+- `GOL_SEED`.
+
+## Sviluppo
+
+```powershell
+uv run ruff check .
+uv run pytest --basetemp=.pytest-tmp --cov=game_of_life
+```
+
+I moduli principali sono:
+
+- `engine.py`: tick, azioni e sistemi simulativi;
+- `models.py`: stato tipizzato del mondo;
+- `ai/`: client Ollama e worker in background;
+- `innovation.py` e `rules.py`: generazione e governance delle regole;
+- `persistence.py`: snapshot, eventi e versioni delle regole;
+- `ui.py`: rendering e pannelli Pygame.
+
+## Prossime evoluzioni
+
+- mercato con prezzi emergenti e proprietà collettive;
+- insediamenti, istituzioni e leggi generate entro effetti sicuri;
+- memoria episodica più ricca e dialoghi multi-turno;
+- stagioni, clima e impatto ecologico;
+- tecnologia, cultura e diplomazia tra comunità.
