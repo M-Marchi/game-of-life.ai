@@ -7,7 +7,8 @@ from game_of_life.persistence import WorldStore
 
 def test_snapshot_round_trip_preserves_continuation(empty_config, tmp_path) -> None:
     original = Simulation(empty_config)
-    original.spawn_human()
+    founder = original.spawn_human()
+    original._form_faction(founder)
     for _ in range(30):
         original.step()
 
@@ -17,6 +18,9 @@ def test_snapshot_round_trip_preserves_continuation(empty_config, tmp_path) -> N
 
     assert restored is not None
     assert restored.state.to_dict() == original.state.to_dict()
+    restored_founder = restored.state.entities[founder.id]
+    assert restored_founder.temperament.archetype == founder.temperament.archetype
+    assert restored.state.factions[founder.faction_id].leader_id == founder.id
     original.step()
     restored.step()
     assert restored.state.to_dict() == original.state.to_dict()

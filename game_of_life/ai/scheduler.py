@@ -21,6 +21,7 @@ class DecisionResult:
 class RuleResult:
     proposal: RuleProposal | None
     error: str | None = None
+    proposer_id: str | None = None
 
 
 class AIWorker:
@@ -38,6 +39,13 @@ class AIWorker:
 
     def start(self) -> None:
         self._thread.start()
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending) + int(self._rule_pending)
+
+    def is_pending(self, entity_id: str) -> bool:
+        return entity_id in self._pending
 
     def submit(self, entity: Entity, context: dict[str, Any]) -> bool:
         if entity.id in self._pending:
@@ -93,12 +101,19 @@ class AIWorker:
                 continue
             try:
                 if job_type == "rule":
-                    self._rule_results.put(RuleResult(self._client.propose_rule(context)))
+                    self._rule_results.put(
+                        RuleResult(
+                            self._client.propose_rule(context),
+                            proposer_id=context.get("proposer_id"),
+                        )
+                    )
                 elif entity is not None:
                     intent = self._client.decide(entity, context)
                     self._results.put(DecisionResult(entity.id, intent))
             except Exception as exc:
                 if job_type == "rule":
-                    self._rule_results.put(RuleResult(None, str(exc)))
+                    self._rule_results.put(
+                        RuleResult(None, str(exc), proposer_id=context.get("proposer_id"))
+                    )
                 elif entity is not None:
                     self._results.put(DecisionResult(entity.id, None, str(exc)))

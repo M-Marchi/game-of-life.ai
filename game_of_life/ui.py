@@ -44,7 +44,7 @@ class SimulationUI:
     def draw(self) -> None:
         self.screen.fill((42, 145, 72))
         for entity in self.simulation.state.entities.values():
-            if entity.alive or not entity.is_living:
+            if entity.alive:
                 self._draw_entity(entity)
         self._draw_panel()
         pygame.display.flip()
@@ -67,6 +67,12 @@ class SimulationUI:
             pygame.draw.circle(self.screen, color, (x, y), 6)
             if entity.kind == EntityKind.HUMAN:
                 self._text(entity.name, x - 12, y - 18, size=13)
+                if entity.faction_id:
+                    pygame.draw.circle(
+                        self.screen, self._faction_color(entity.faction_id), (x, y), 9, 2
+                    )
+                if entity.thinking:
+                    self._text("...", x - 5, y + 7, size=15, color=(120, 210, 255))
         if entity.id == self.selected_id:
             pygame.draw.circle(self.screen, (255, 220, 40), (x, y), 12, 2)
 
@@ -86,14 +92,21 @@ class SimulationUI:
             left + 16,
             72,
         )
+        self._text(
+            f"Fazioni {stats['factions']}   Guerre {stats['wars']}",
+            left + 16,
+            90,
+            size=14,
+            color=(235, 150, 135),
+        )
         resources = self._settlement_resources()
         resource_line = "  ".join(
             f"{key}:{resources.get(key, 0)}" for key in ("food", "wood", "stone", "tools")
         )
-        self._text(resource_line, left + 16, 94, size=14, color=(180, 190, 170))
-        self._text("SPAZIO pausa   +/- velocità", left + 16, 114, color=(155, 165, 175))
+        self._text(resource_line, left + 16, 108, size=14, color=(180, 190, 170))
+        self._text("SPAZIO pausa   +/- velocità", left + 16, 128, color=(155, 165, 175))
 
-        y = 142
+        y = 156
         selected = self.simulation.state.entities.get(self.selected_id or "")
         if selected:
             self._text("AGENTE", left + 16, y, color=(100, 190, 255))
@@ -103,7 +116,11 @@ class SimulationUI:
                 f"Fame {selected.hunger:.0f}  Sete {selected.thirst:.0f}",
                 f"Energia {selected.energy:.0f}  Sociale {selected.social:.0f}",
                 f"Professione: {selected.profession}",
-                f"Azione: {selected.action.kind}",
+                f"Temperamento: {selected.temperament.archetype}",
+                f"Umore: {selected.mood}",
+                f"Fazione: {selected.faction_id or '-'}",
+                f"Azione: {'THINKING' if selected.thinking else selected.action.kind}",
+                f"Obiettivo: {selected.goal[:34]}",
                 f"Inventario: {selected.inventory}",
             )
             for line in details:
@@ -150,6 +167,11 @@ class SimulationUI:
             for resource, amount in entity.inventory.items():
                 resources[resource] = resources.get(resource, 0) + amount
         return resources
+
+    @staticmethod
+    def _faction_color(faction_id: str) -> tuple[int, int, int]:
+        value = sum((index + 1) * ord(character) for index, character in enumerate(faction_id))
+        return (80 + value % 176, 80 + (value // 3) % 176, 80 + (value // 7) % 176)
 
     def _text(
         self,

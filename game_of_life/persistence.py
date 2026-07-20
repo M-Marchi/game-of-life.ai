@@ -12,12 +12,14 @@ from game_of_life.models import (
     ActionType,
     Entity,
     EntityKind,
+    Faction,
     Position,
+    Temperament,
     WorldEvent,
     WorldState,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class WorldStore:
@@ -166,11 +168,16 @@ def _world_from_dict(data: dict[str, Any]) -> WorldState:
         tick=data["tick"],
         next_id=data["next_id"],
         active_rules=data.get("active_rules", {}),
+        factions={
+            faction_id: Faction(**definition)
+            for faction_id, definition in data.get("factions", {}).items()
+        },
     )
     for entity_id, item in data["entities"].items():
         item = dict(item)
         item["kind"] = EntityKind(item["kind"])
         item["position"] = Position(**item["position"])
+        item["temperament"] = Temperament(**item.get("temperament", {}))
         action = item.get("action", {})
         action["kind"] = ActionType(action.get("kind", ActionType.IDLE))
         item["action"] = Action(**action)

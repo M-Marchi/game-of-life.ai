@@ -28,6 +28,15 @@ class ActionType(StrEnum):
     BUILD = "build"
     WORK = "work"
     TRADE = "trade"
+    HELP = "help"
+    STEAL = "steal"
+    EXPLORE = "explore"
+    FORM_FACTION = "form_faction"
+    RECRUIT = "recruit"
+    DECLARE_WAR = "declare_war"
+    MAKE_PEACE = "make_peace"
+    INNOVATE = "innovate"
+    SABOTAGE = "sabotage"
 
 
 class Profession(StrEnum):
@@ -57,6 +66,31 @@ class Action:
     resource: str | None = None
     amount: int = 1
     explanation: str = ""
+
+
+@dataclass(slots=True)
+class Temperament:
+    archetype: str = "balanced"
+    aggression: float = 0.5
+    sociability: float = 0.5
+    ambition: float = 0.5
+    curiosity: float = 0.5
+    empathy: float = 0.5
+    creativity: float = 0.5
+    risk_tolerance: float = 0.5
+
+
+@dataclass(slots=True)
+class Faction:
+    id: str
+    name: str
+    leader_id: str
+    members: list[str] = field(default_factory=list)
+    rivals: list[str] = field(default_factory=list)
+    ideology: str = "survival"
+    founded_tick: int = 0
+    victories: int = 0
+    defeats: int = 0
 
 
 @dataclass(slots=True)
@@ -91,6 +125,14 @@ class Entity:
     resource_capacity: int = 0
     building_type: str | None = None
     owner_id: str | None = None
+    temperament: Temperament = field(default_factory=Temperament)
+    mood: str = "calm"
+    goal: str = "survive and find a place in the world"
+    faction_id: str | None = None
+    reputation: float = 0.0
+    last_ai_tick: int = -100_000
+    thinking: bool = False
+    kills: int = 0
     alive: bool = True
 
     @property
@@ -112,6 +154,7 @@ class WorldState:
     next_id: int = 1
     entities: dict[str, Entity] = field(default_factory=dict)
     active_rules: dict[str, dict[str, Any]] = field(default_factory=dict)
+    factions: dict[str, Faction] = field(default_factory=dict)
 
     def allocate_id(self, prefix: str) -> str:
         entity_id = f"{prefix}-{self.next_id:06d}"

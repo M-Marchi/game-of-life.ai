@@ -10,8 +10,9 @@ class AIConfig:
     model: str = "qwen3:8b"
     endpoint: str = "http://127.0.0.1:11434"
     timeout_seconds: float = 120.0
-    decision_interval_ticks: int = 120
-    max_pending_requests: int = 8
+    decision_interval_ticks: int = 30
+    decision_cooldown_ticks: int = 600
+    max_pending_requests: int = 6
 
 
 @dataclass(slots=True)
@@ -28,6 +29,7 @@ class SimulationConfig:
     initial_rocks: int = 24
     initial_lakes: int = 5
     autosave_interval_ticks: int = 500
+    world_event_interval_ticks: int = 1_500
     ai: AIConfig = field(default_factory=AIConfig)
 
 

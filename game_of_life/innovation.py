@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from game_of_life.ai.scheduler import AIWorker
-from game_of_life.models import EntityKind, Profession
+from game_of_life.models import Entity, EntityKind, Profession
 from game_of_life.rules import RuleProposal, RuleRegistry, RuleValidation
 
 if TYPE_CHECKING:
@@ -41,8 +41,13 @@ class InnovationManager:
                 simulation.state.tick,
                 self._resource_totals(simulation),
             )
-            self._assign_profession(result.proposal, simulation)
-            simulation.emit("rule_activated", rule_id=result.proposal.id, definition=definition)
+            self._assign_profession(result.proposal, simulation, result.proposer_id)
+            simulation.emit(
+                "rule_activated",
+                result.proposer_id,
+                rule_id=result.proposal.id,
+                definition=definition,
+            )
 
         self._monitor(simulation)
         if simulation.state.tick and simulation.state.tick % self.interval_ticks == 0:
@@ -58,6 +63,25 @@ class InnovationManager:
                         "existing_rules": sorted(self.registry.active),
                     }
                 )
+
+    def request_from_actor(self, simulation: Simulation, actor: Entity) -> bool:
+        return self.worker.submit_rule(
+            {
+                "tick": simulation.state.tick,
+                "seed": simulation.state.seed,
+                "population": len(simulation.state.living(EntityKind.HUMAN)),
+                "resources": self._resource_totals(simulation),
+                "existing_rules": sorted(self.registry.active),
+                "proposer_id": actor.id,
+                "proposer_name": actor.name,
+                "proposer_goal": actor.goal,
+                "proposer_profession": actor.profession,
+                "proposer_temperament": actor.temperament.archetype,
+                "opportunity": (
+                    "Create a surprising but useful change consistent with the proposer."
+                ),
+            }
+        )
 
     def _hydrate(self, simulation: Simulation) -> None:
         if self._hydrated:
@@ -99,11 +123,16 @@ class InnovationManager:
                 simulation.emit("rule_rollback", rule_id=rule_id, reason="runaway production")
 
     @staticmethod
-    def _assign_profession(proposal: RuleProposal, simulation: Simulation) -> None:
+    def _assign_profession(
+        proposal: RuleProposal, simulation: Simulation, preferred_id: str | None = None
+    ) -> None:
         if proposal.category != "profession":
             return
         humans = simulation.state.living(EntityKind.HUMAN)
-        candidate = next(
+        candidate = simulation.state.entities.get(preferred_id or "")
+        if candidate and (not candidate.alive or candidate.kind != EntityKind.HUMAN):
+            candidate = None
+        candidate = candidate or next(
             (human for human in humans if human.profession == Profession.UNASSIGNED), None
         )
         candidate = candidate or next(

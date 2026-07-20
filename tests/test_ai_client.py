@@ -59,3 +59,47 @@ def test_generated_rule_repairs_invalid_first_response(monkeypatch) -> None:
 
     assert proposal.id == "toolmaker"
     assert proposal.effects == {}
+
+
+def test_decision_schema_is_restricted_to_context_actions(monkeypatch) -> None:
+    client = OllamaAIClient(AIConfig())
+    captured_payloads = []
+
+    def respond(_path, payload):
+        captured_payloads.append(payload)
+        return {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "action": "explore",
+                        "target_id": None,
+                        "resource": None,
+                        "amount": 1,
+                        "explanation": "I want to see the world.",
+                        "goal": "discover an unknown place",
+                        "mood": "curious",
+                    }
+                )
+            }
+        }
+
+    monkeypatch.setattr(client, "_request", respond)
+    context = {
+        "seed": 42,
+        "legal_actions": ["idle", "explore"],
+        "nearby": [],
+    }
+
+    intent = client.decide(_human(), context)
+
+    assert intent.action == ActionType.EXPLORE
+    assert captured_payloads[0]["format"]["$defs"]["ActionType"]["enum"] == [
+        "idle",
+        "explore",
+    ]
+
+
+def _human():
+    from game_of_life.models import Entity, EntityKind, Position
+
+    return Entity("human-test", EntityKind.HUMAN, Position(10, 10), name="Ada")

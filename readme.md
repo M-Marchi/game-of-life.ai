@@ -13,6 +13,10 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
 - fame, sete, energia, salute, ciclo vitale e riproduzione;
 - raccolta, inventari, cibo consumabile, combattimento, sonno, dialogo, commercio e costruzione;
 - professioni iniziali e lavoro basato sulle risorse;
+- temperamenti ereditabili, umore e obiettivi persistenti;
+- fazioni, reclutamento, guerre, successione dei leader, pace e dissoluzione dei gruppi;
+- azioni emergenti come aiutare, rubare, esplorare, innovare e sabotare;
+- crisi ambientali periodiche: siccità, incendi, epidemie, raccolti e boom minerari;
 - cognizione ibrida con fallback deterministico;
 - generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
 - snapshot ed event log in SQLite;
@@ -43,6 +47,9 @@ Comandi UI:
 - clic su un'entità: apre l'inspector;
 - `Spazio`: pausa/riprendi;
 - `+` e `-`: velocità della simulazione.
+
+Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite. L'inspector visualizza temperamento,
+umore, fazione, obiettivo e azione corrente; il pannello generale mostra fazioni e guerre attive.
 
 Il mondo viene salvato in `saves/world.db`. Per riprendere l'ultimo snapshot:
 
