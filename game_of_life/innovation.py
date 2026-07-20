@@ -141,7 +141,11 @@ class InnovationManager:
         if candidate:
             candidate.profession = proposal.id
             candidate.remember(
-                f"I became a {proposal.name} to address: {proposal.activation_reason}"
+                f"I became a {proposal.name} to address: {proposal.activation_reason}",
+                tick=simulation.state.tick,
+                category="profession",
+                importance=0.85,
+                emotion="proud",
             )
 
     @staticmethod

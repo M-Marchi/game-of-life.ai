@@ -10,16 +10,18 @@ from game_of_life.engine import Simulation
 from game_of_life.models import (
     Action,
     ActionType,
+    AgentState,
     Entity,
     EntityKind,
     Faction,
+    MemoryEntry,
     Position,
     Temperament,
     WorldEvent,
     WorldState,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class WorldStore:
@@ -178,6 +180,13 @@ def _world_from_dict(data: dict[str, Any]) -> WorldState:
         item["kind"] = EntityKind(item["kind"])
         item["position"] = Position(**item["position"])
         item["temperament"] = Temperament(**item.get("temperament", {}))
+        item["state"] = AgentState(item.get("state", AgentState.AWAKE))
+        item["short_term_memory"] = [
+            MemoryEntry(**memory) for memory in item.get("short_term_memory", [])
+        ]
+        item["long_term_memory"] = [
+            MemoryEntry(**memory) for memory in item.get("long_term_memory", [])
+        ]
         action = item.get("action", {})
         action["kind"] = ActionType(action.get("kind", ActionType.IDLE))
         item["action"] = Action(**action)

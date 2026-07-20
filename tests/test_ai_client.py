@@ -99,6 +99,33 @@ def test_decision_schema_is_restricted_to_context_actions(monkeypatch) -> None:
     ]
 
 
+def test_dream_keeps_only_supplied_memory_ids(monkeypatch) -> None:
+    client = OllamaAIClient(AIConfig())
+    human = _human()
+    known = human.remember("I protected Ada", tick=4, importance=0.9, emotion="hopeful")
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda *_args, **_kwargs: {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "dream": "A lantern carried Ada safely through a black forest.",
+                        "insight": "Loyalty gives my courage a direction.",
+                        "new_goal": "build a refuge for my allies",
+                        "mood": "hopeful",
+                        "important_memory_ids": [known.id, "invented-memory"],
+                    }
+                )
+            }
+        },
+    )
+
+    reflection = client.reflect(human, {"seed": 42})
+
+    assert reflection.important_memory_ids == [known.id]
+
+
 def _human():
     from game_of_life.models import Entity, EntityKind, Position
 

@@ -20,8 +20,34 @@ class ResultWorker:
     def drain_rules(self) -> list[object]:
         return []
 
+    def drain_reflections(self) -> list[object]:
+        return []
+
     def submit(self, *_args, **_kwargs) -> bool:
         return False
+
+    def submit_reflection(self, *_args, **_kwargs) -> bool:
+        return False
+
+
+def test_story_transfers_a_defining_memory(empty_config) -> None:
+    simulation = Simulation(empty_config)
+    storyteller = simulation.spawn_human(position=Position(100, 100))
+    listener = simulation.spawn_human(position=Position(104, 100))
+    storyteller.remember(
+        "I founded the first workshop",
+        tick=10,
+        category="creation",
+        importance=0.9,
+        emotion="proud",
+    )
+    storyteller.consolidate_memories(11)
+
+    simulation._tell_story(storyteller, listener)
+
+    assert listener.short_term_memory[-1].category == "story"
+    assert storyteller.id in listener.short_term_memory[-1].participants
+    assert any(event.event_type == "story_told" for event in simulation.events)
 
 
 def test_ai_talk_is_executed_before_local_logic(empty_config) -> None:

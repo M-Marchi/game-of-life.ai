@@ -40,6 +40,9 @@ class AgentIntent(BaseModel):
             ActionType.DECLARE_WAR,
             ActionType.MAKE_PEACE,
             ActionType.SABOTAGE,
+            ActionType.TELL_STORY,
+            ActionType.TEACH,
+            ActionType.FORGIVE,
         }
         if self.action in target_actions and not self.target_id:
             raise ValueError(f"{self.action} requires target_id")
@@ -55,12 +58,24 @@ class AgentIntent(BaseModel):
         )
 
 
+class SleepReflection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dream: str = Field(min_length=10, max_length=600)
+    insight: str = Field(min_length=5, max_length=300)
+    new_goal: str = Field(min_length=3, max_length=180)
+    mood: Literal["calm", "hopeful", "curious", "proud", "afraid", "angry", "sad"]
+    important_memory_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
 class AIClient(Protocol):
     def healthcheck(self) -> bool: ...
 
     def decide(self, entity: Entity, context: dict[str, Any]) -> AgentIntent: ...
 
     def propose_rule(self, context: dict[str, Any]) -> RuleProposal: ...
+
+    def reflect(self, entity: Entity, context: dict[str, Any]) -> SleepReflection: ...
 
 
 class AIUnavailableError(RuntimeError):
@@ -94,6 +109,17 @@ class FakeAIClient:
             outputs={"water": 1},
             duration_ticks=20,
             activation_reason="The settlement has a water shortage.",
+        )
+
+    def reflect(self, entity: Entity, context: dict[str, Any]) -> SleepReflection:
+        memories = entity.short_term_memory + entity.long_term_memory
+        memory_ids = [memory.id for memory in memories[-3:]]
+        return SleepReflection(
+            dream="I crossed a changing world and recognized the people who shaped me.",
+            insight="My choices connect my needs to the lives around me.",
+            new_goal=entity.goal,
+            mood="curious",
+            important_memory_ids=memory_ids,
         )
 
 
@@ -130,13 +156,15 @@ class OllamaAIClient:
             "relationships, power, curiosity, creation, rivalry, or cooperation. Avoid repeating "
             "a mundane action from recent memories unless survival requires it. Aggressive and "
             "ambitious people may steal, recruit, form factions, declare war, sabotage, or attack. "
-            "Empathic people may help or make peace. Curious people explore. Creative people "
-            "innovate or build. Social people talk, trade, and recruit. Set a concise persistent "
-            "goal and current mood. Never invent entity IDs. Targeted actions MOVE, DRINK, GATHER, "
+            "Empathic people may help, forgive, or make peace. Curious people explore or reflect. "
+            "Creative people innovate or build. Social people talk, tell stories, teach, trade, "
+            "and recruit. Memories are evidence: let betrayals, loyalties, dreams, and past "
+            "achievements influence the choice. Set a concise persistent goal and current mood. "
+            "Never invent entity IDs. Targeted actions MOVE, DRINK, GATHER, "
             "ATTACK, TALK, MATE, TRADE, HELP, STEAL, RECRUIT, DECLARE_WAR, MAKE_PEACE, and "
-            "SABOTAGE require a "
-            "compatible target_id copied exactly from a nearby entity. FORM_FACTION, EXPLORE, and "
-            "INNOVATE do not require a target. Return only data matching the JSON schema.\n"
+            "SABOTAGE, TELL_STORY, TEACH, and FORGIVE require a compatible target_id copied "
+            "exactly from a nearby entity. FORM_FACTION, EXPLORE, INNOVATE, REFLECT, and SLEEP "
+            "do not require a target. Return only data matching the JSON schema.\n"
             "Do not declare war on an existing rival; during a war choose attack, sabotage, help, "
             "or make_peace according to personality. Choose only from WORLD.legal_actions. "
             f"AGENT={json.dumps(_entity_context(entity), ensure_ascii=False)}\n"
@@ -241,6 +269,42 @@ class OllamaAIClient:
                 )
         raise AIUnavailableError(f"Invalid generated rule after repair: {last_error}")
 
+    def reflect(self, entity: Entity, context: dict[str, Any]) -> SleepReflection:
+        prompt = (
+            "You are the dreaming mind of one inhabitant in an emergent society. Transform recent "
+            "experiences and older defining memories into a vivid, symbolic dream of 2-4 complete "
+            "sentences under 450 characters. Preserve only "
+            "memories that affect identity, relationships, danger, creation, grief, loyalty, or a "
+            "long-term goal; ignore repetitive eating, drinking, walking, and routine gathering. "
+            "Derive one insight and evolve the goal without erasing the person's temperament. "
+            "Use only supplied memory IDs. Return only the JSON schema.\n"
+            f"DREAMER={json.dumps(_entity_context(entity), ensure_ascii=False)}\n"
+            f"SLEEP_CONTEXT={json.dumps(context, ensure_ascii=False)}"
+        )
+        response = self._request(
+            "/api/chat",
+            {
+                "model": self.config.model,
+                "stream": False,
+                "think": False,
+                "format": SleepReflection.model_json_schema(),
+                "messages": [{"role": "user", "content": prompt}],
+                "options": {
+                    "temperature": 0.8,
+                    "seed": context.get("decision_seed", context.get("seed", 42)),
+                },
+            },
+        )
+        try:
+            reflection = SleepReflection.model_validate_json(response["message"]["content"])
+        except (KeyError, TypeError, ValidationError) as exc:
+            raise AIUnavailableError(f"Invalid dream response: {exc}") from exc
+        known_ids = {memory.id for memory in entity.short_term_memory + entity.long_term_memory}
+        reflection.important_memory_ids = [
+            memory_id for memory_id in reflection.important_memory_ids if memory_id in known_ids
+        ]
+        return reflection
+
 
 def _entity_context(entity: Entity) -> dict[str, Any]:
     return {
@@ -269,5 +333,24 @@ def _entity_context(entity: Entity) -> dict[str, Any]:
         "faction_id": entity.faction_id,
         "reputation": round(entity.reputation, 1),
         "inventory": entity.inventory,
-        "memories": entity.memories[-5:],
+        "short_term_memory": [
+            {
+                "id": memory.id,
+                "summary": memory.summary,
+                "importance": memory.importance,
+                "emotion": memory.emotion,
+            }
+            for memory in entity.short_term_memory[-8:]
+        ],
+        "long_term_memory": [
+            {
+                "id": memory.id,
+                "summary": memory.summary,
+                "importance": memory.importance,
+                "emotion": memory.emotion,
+                "recall_count": memory.recall_count,
+            }
+            for memory in entity.long_term_memory[:8]
+        ],
+        "last_dream": entity.last_dream,
     }

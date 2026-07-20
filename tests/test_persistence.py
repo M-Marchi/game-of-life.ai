@@ -9,6 +9,13 @@ def test_snapshot_round_trip_preserves_continuation(empty_config, tmp_path) -> N
     original = Simulation(empty_config)
     founder = original.spawn_human()
     original._form_faction(founder)
+    founder.remember(
+        "I promised to protect this settlement",
+        tick=original.state.tick,
+        category="identity",
+        importance=0.9,
+        emotion="hopeful",
+    )
     for _ in range(30):
         original.step()
 

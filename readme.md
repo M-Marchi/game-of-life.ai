@@ -12,10 +12,13 @@ Il progetto è stato rilanciato su Python 3.12 con un nuovo core event-driven. S
 - umani, mucche, alberi, rocce, laghi ed edifici;
 - fame, sete, energia, salute, ciclo vitale e riproduzione;
 - raccolta, inventari, cibo consumabile, combattimento, sonno, dialogo, commercio e costruzione;
+- memoria breve strutturata e memoria lunga selettiva, con oblio dei dettagli di routine;
+- ciclo del sonno `awake -> sleeping -> dreaming`, sogni generati da Qwen e nuovi insight/obiettivi;
 - professioni iniziali e lavoro basato sulle risorse;
 - temperamenti ereditabili, umore e obiettivi persistenti;
 - fazioni, reclutamento, guerre, successione dei leader, pace e dissoluzione dei gruppi;
-- azioni emergenti come aiutare, rubare, esplorare, innovare e sabotare;
+- azioni emergenti come aiutare, rubare, esplorare, innovare, sabotare, riflettere, raccontare,
+  insegnare e perdonare;
 - crisi ambientali periodiche: siccità, incendi, epidemie, raccolti e boom minerari;
 - cognizione ibrida con fallback deterministico;
 - generazione di regole data-only con validazione, shadow check, monitoraggio e rollback;
@@ -48,8 +51,15 @@ Comandi UI:
 - `Spazio`: pausa/riprendi;
 - `+` e `-`: velocità della simulazione.
 
-Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite. L'inspector visualizza temperamento,
-umore, fazione, obiettivo e azione corrente; il pannello generale mostra fazioni e guerre attive.
+Gli agenti in attesa di Ollama mostrano `...` sotto lo sprite; durante il sonno mostrano `zZ` e
+durante i sogni `*`. L'inspector visualizza stato cognitivo, memoria breve/lunga, ultimo sogno,
+temperamento, umore, fazione, obiettivo e azione corrente. Il mondo parte con 8 umani e applica un
+limite di 24: le nascite umane richiedono adulti con una relazione reciproca già costruita.
+
+Il ritmo della GUI è 10 tick al secondo a velocità `x1`. Un ciclo di sonno dura circa 16 secondi:
+a metà ciclo le esperienze importanti vengono consolidate, quelle banali dimenticate e Qwen produce
+un sogno simbolico che può cambiare umore e obiettivo. Senza Ollama viene usato un sogno
+deterministico, quindi il sistema resta completamente giocabile offline.
 
 Il mondo viene salvato in `saves/world.db`. Per riprendere l'ultimo snapshot:
 
@@ -99,6 +109,6 @@ I moduli principali sono:
 
 - mercato con prezzi emergenti e proprietà collettive;
 - insediamenti, istituzioni e leggi generate entro effetti sicuri;
-- memoria episodica più ricca e dialoghi multi-turno;
+- dialoghi multi-turno e memorie condivise tra generazioni;
 - stagioni, clima e impatto ecologico;
 - tecnologia, cultura e diplomazia tra comunità.

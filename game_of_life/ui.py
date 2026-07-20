@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pygame
 
 from game_of_life.engine import Simulation
-from game_of_life.models import Entity, EntityKind
+from game_of_life.models import AgentState, Entity, EntityKind
 
 COLORS = {
     EntityKind.HUMAN: (235, 210, 120),
@@ -73,6 +73,10 @@ class SimulationUI:
                     )
                 if entity.thinking:
                     self._text("...", x - 5, y + 7, size=15, color=(120, 210, 255))
+                elif entity.state == AgentState.SLEEPING:
+                    self._text("zZ", x - 5, y + 7, size=15, color=(170, 190, 255))
+                elif entity.state == AgentState.DREAMING:
+                    self._text("*", x - 2, y + 7, size=18, color=(205, 150, 255))
         if entity.id == self.selected_id:
             pygame.draw.circle(self.screen, (255, 220, 40), (x, y), 12, 2)
 
@@ -119,6 +123,7 @@ class SimulationUI:
                 f"Temperamento: {selected.temperament.archetype}",
                 f"Umore: {selected.mood}",
                 f"Fazione: {selected.faction_id or '-'}",
+                f"Stato: {selected.state}",
                 f"Azione: {'THINKING' if selected.thinking else selected.action.kind}",
                 f"Obiettivo: {selected.goal[:34]}",
                 f"Inventario: {selected.inventory}",
@@ -126,11 +131,24 @@ class SimulationUI:
             for line in details:
                 y += 22
                 self._text(line, left + 16, y)
-            if selected.memories:
+            memories = selected.short_term_memory + selected.long_term_memory
+            if memories:
                 y += 30
-                self._text("ULTIMO RICORDO", left + 16, y, color=(100, 190, 255))
+                self._text(
+                    f"MEMORIA breve {len(selected.short_term_memory)} / lunga "
+                    f"{len(selected.long_term_memory)}",
+                    left + 16,
+                    y,
+                    color=(100, 190, 255),
+                )
                 y += 22
-                self._text(selected.memories[-1][:42], left + 16, y, size=14)
+                memory = max(memories, key=lambda item: (item.importance, item.tick))
+                self._text(memory.summary[:42], left + 16, y, size=14)
+            if selected.last_dream:
+                y += 24
+                self._text("SOGNO", left + 16, y, color=(205, 150, 255))
+                y += 19
+                self._text(selected.last_dream[:42], left + 16, y, size=13)
             y += 38
 
         if self.simulation.state.active_rules:

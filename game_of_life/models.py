@@ -37,6 +37,16 @@ class ActionType(StrEnum):
     MAKE_PEACE = "make_peace"
     INNOVATE = "innovate"
     SABOTAGE = "sabotage"
+    REFLECT = "reflect"
+    TELL_STORY = "tell_story"
+    TEACH = "teach"
+    FORGIVE = "forgive"
+
+
+class AgentState(StrEnum):
+    AWAKE = "awake"
+    SLEEPING = "sleeping"
+    DREAMING = "dreaming"
 
 
 class Profession(StrEnum):
@@ -94,6 +104,19 @@ class Faction:
 
 
 @dataclass(slots=True)
+class MemoryEntry:
+    id: str
+    tick: int
+    summary: str
+    category: str = "event"
+    importance: float = 0.5
+    emotion: str = "neutral"
+    participants: list[str] = field(default_factory=list)
+    recall_count: int = 0
+    last_recalled_tick: int = 0
+
+
+@dataclass(slots=True)
 class Entity:
     id: str
     kind: EntityKind
@@ -115,7 +138,10 @@ class Entity:
     profession: str = Profession.UNASSIGNED
     skills: dict[str, float] = field(default_factory=dict)
     relationships: dict[str, float] = field(default_factory=dict)
-    memories: list[str] = field(default_factory=list)
+    short_term_memory: list[MemoryEntry] = field(default_factory=list)
+    long_term_memory: list[MemoryEntry] = field(default_factory=list)
+    dreams: list[str] = field(default_factory=list)
+    memory_sequence: int = 0
     home_id: str | None = None
     action: Action = field(default_factory=Action)
     action_cooldown: int = 0
@@ -133,16 +159,89 @@ class Entity:
     last_ai_tick: int = -100_000
     thinking: bool = False
     kills: int = 0
+    state: AgentState = AgentState.AWAKE
+    sleep_ticks_remaining: int = 0
+    reflection_pending: bool = False
+    last_dream: str = ""
     alive: bool = True
 
     @property
     def is_living(self) -> bool:
         return self.kind in {EntityKind.HUMAN, EntityKind.COW}
 
-    def remember(self, text: str, *, limit: int = 20) -> None:
-        self.memories.append(text)
-        if len(self.memories) > limit:
-            del self.memories[: len(self.memories) - limit]
+    def remember(
+        self,
+        text: str,
+        *,
+        tick: int = 0,
+        category: str = "event",
+        importance: float = 0.5,
+        emotion: str = "neutral",
+        participants: list[str] | None = None,
+        limit: int = 16,
+    ) -> MemoryEntry:
+        self.memory_sequence += 1
+        memory = MemoryEntry(
+            id=f"{self.id}-m{self.memory_sequence:05d}",
+            tick=tick,
+            summary=text,
+            category=category,
+            importance=max(0.0, min(1.0, importance)),
+            emotion=emotion,
+            participants=list(participants or []),
+            last_recalled_tick=tick,
+        )
+        self.short_term_memory.append(memory)
+        if len(self.short_term_memory) > limit:
+            overflow = len(self.short_term_memory) - limit
+            ranked_for_eviction = sorted(
+                self.short_term_memory,
+                key=lambda item: (
+                    item.importance + (0.15 if item.emotion not in {"neutral", "calm"} else 0),
+                    item.tick,
+                ),
+            )
+            evicted_ids = {item.id for item in ranked_for_eviction[:overflow]}
+            self.short_term_memory = [
+                item for item in self.short_term_memory if item.id not in evicted_ids
+            ]
+        return memory
+
+    def consolidate_memories(self, tick: int, *, long_term_limit: int = 48) -> tuple[int, int]:
+        retained = 0
+        forgotten = 0
+        for memory in self.short_term_memory:
+            emotional = memory.emotion not in {"neutral", "calm"}
+            if memory.importance < 0.55 and not emotional:
+                forgotten += 1
+                continue
+            duplicate = next(
+                (
+                    existing
+                    for existing in self.long_term_memory
+                    if existing.summary.casefold() == memory.summary.casefold()
+                ),
+                None,
+            )
+            if duplicate:
+                duplicate.importance = min(1.0, max(duplicate.importance, memory.importance) + 0.05)
+                duplicate.recall_count += 1
+                duplicate.last_recalled_tick = tick
+            else:
+                self.long_term_memory.append(memory)
+            retained += 1
+        self.short_term_memory.clear()
+        self.long_term_memory.sort(
+            key=lambda memory: (
+                memory.importance + min(0.2, memory.recall_count * 0.02),
+                memory.tick,
+            ),
+            reverse=True,
+        )
+        if len(self.long_term_memory) > long_term_limit:
+            forgotten += len(self.long_term_memory) - long_term_limit
+            del self.long_term_memory[long_term_limit:]
+        return retained, forgotten
 
 
 @dataclass(slots=True)

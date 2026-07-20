@@ -99,14 +99,18 @@ def _run_pygame(simulation: Simulation, store: WorldStore) -> None:
     pygame.display.set_caption("Game of Life AI")
     ui = SimulationUI(simulation, screen)
     clock = pygame.time.Clock()
+    tick_accumulator = 0.0
     running = True
     last_saved_tick = simulation.state.tick
     while running:
+        elapsed_seconds = clock.tick(simulation.config.fps) / 1_000
         for event in pygame.event.get():
             running = ui.handle_event(event)
         if not ui.paused:
-            for _ in range(ui.speed):
+            tick_accumulator += elapsed_seconds * simulation.config.ticks_per_second * ui.speed
+            while tick_accumulator >= 1:
                 simulation.step()
+                tick_accumulator -= 1
         ui.draw()
         if (
             simulation.state.tick != last_saved_tick
@@ -114,7 +118,6 @@ def _run_pygame(simulation: Simulation, store: WorldStore) -> None:
         ):
             store.save_snapshot(simulation)
             last_saved_tick = simulation.state.tick
-        clock.tick(simulation.config.fps)
     pygame.quit()
 
 

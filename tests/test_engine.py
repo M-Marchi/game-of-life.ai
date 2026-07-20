@@ -34,6 +34,8 @@ def test_reproduction_creates_exactly_one_child(empty_config) -> None:
     first = simulation.spawn_human(position=Position(100, 100), gender="male")
     second = simulation.spawn_human(position=Position(104, 100), gender="female")
     first.reproduction_drive = second.reproduction_drive = 100
+    first.relationships[second.id] = 20
+    second.relationships[first.id] = 20
 
     simulation.step()
 

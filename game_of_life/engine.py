@@ -11,6 +11,7 @@ from game_of_life.config import SimulationConfig
 from game_of_life.models import (
     Action,
     ActionType,
+    AgentState,
     Entity,
     EntityKind,
     Faction,
@@ -160,6 +161,10 @@ class Simulation:
         self._apply_ai_results()
         actors = sorted(self.state.living(), key=lambda entity: entity.id)
         for actor in actors:
+            if actor.state != AgentState.AWAKE:
+                self._advance_sleep(actor)
+                self._update_needs(actor)
+                continue
             if actor.decision_lock_ticks > 0:
                 actor.decision_lock_ticks -= 1
             else:
@@ -278,6 +283,9 @@ class Simulation:
         disliked = next(
             (human for human in nearby if actor.relationships.get(human.id, 0) < -10), None
         )
+        if disliked and temperament.empathy > 0.72 and self.random.random() < 0.45:
+            actor.decision_lock_ticks = 60
+            return Action(ActionType.FORGIVE, disliked.id, explanation="I will end this grievance")
         if disliked and temperament.aggression > 0.68:
             actor.decision_lock_ticks = 60
             action = ActionType.ATTACK if temperament.aggression > 0.82 else ActionType.STEAL
@@ -299,6 +307,20 @@ class Simulation:
             return Action(
                 ActionType.INNOVATE, explanation="I have an idea that could change society"
             )
+        if nearby and actor.long_term_memory and temperament.sociability > 0.62:
+            target = self.random.choice(nearby)
+            actor.decision_lock_ticks = 50
+            return Action(
+                ActionType.TELL_STORY,
+                target.id,
+                explanation="A memory of mine deserves to be shared",
+            )
+        if nearby and actor.skills and temperament.empathy + temperament.ambition > 1.05:
+            target = min(nearby, key=lambda human: sum(human.skills.values()))
+            actor.decision_lock_ticks = 50
+            return Action(ActionType.TEACH, target.id, explanation="I will pass on what I know")
+        if actor.short_term_memory and temperament.curiosity > 0.58:
+            return Action(ActionType.REFLECT, explanation="I need to understand what happened")
         if temperament.curiosity > 0.65:
             return Action(ActionType.EXPLORE, explanation="I want to discover a new place")
         if nearby and temperament.sociability > 0.65:
@@ -455,7 +477,7 @@ class Simulation:
         elif action.kind == ActionType.ATTACK:
             self._attack(actor, target)
         elif action.kind == ActionType.SLEEP:
-            actor.energy = min(100, actor.energy + 2.5)
+            self._start_sleep(actor)
         elif action.kind == ActionType.TALK:
             self._talk(actor, target)
         elif action.kind == ActionType.MATE:
@@ -484,6 +506,14 @@ class Simulation:
             self._innovate(actor)
         elif action.kind == ActionType.SABOTAGE:
             self._sabotage(actor, target)
+        elif action.kind == ActionType.REFLECT:
+            self._reflect(actor)
+        elif action.kind == ActionType.TELL_STORY:
+            self._tell_story(actor, target)
+        elif action.kind == ActionType.TEACH:
+            self._teach(actor, target)
+        elif action.kind == ActionType.FORGIVE:
+            self._forgive(actor, target)
 
     def _move(self, actor: Entity, target: Entity | None) -> None:
         if not target or not target.alive:
@@ -499,6 +529,153 @@ class Simulation:
             actor.position.y = min(
                 max(8, actor.position.y + dy / magnitude * actor.speed), self.state.height - 8
             )
+
+    def _start_sleep(self, actor: Entity) -> None:
+        if actor.state != AgentState.AWAKE:
+            return
+        actor.state = AgentState.SLEEPING
+        actor.sleep_ticks_remaining = self.config.sleep_duration_ticks
+        actor.decision_lock_ticks = 0
+        actor.action = Action(ActionType.SLEEP, explanation="Sleeping and processing memories")
+        self.emit("sleep_started", actor.id, short_memories=len(actor.short_term_memory))
+
+    def _advance_sleep(self, actor: Entity) -> None:
+        actor.sleep_ticks_remaining = max(0, actor.sleep_ticks_remaining - 1)
+        actor.energy = min(100, actor.energy + 0.75)
+        if (
+            actor.state == AgentState.SLEEPING
+            and actor.sleep_ticks_remaining <= self.config.dream_start_ticks
+        ):
+            actor.state = AgentState.DREAMING
+            dreamer_snapshot = copy.deepcopy(actor)
+            dream_context = self.context_for(actor)
+            dream_context["sleep_world_state"] = {
+                "tick": self.state.tick,
+                "population": len(self.state.living(EntityKind.HUMAN)),
+                "factions": len(self.state.factions),
+                "wars": sum(len(faction.rivals) for faction in self.state.factions.values()) // 2,
+                "recent_events": [event.event_type for event in self.events[-10:]],
+            }
+            submitted = bool(
+                self.ai_worker and self.ai_worker.submit_reflection(dreamer_snapshot, dream_context)
+            )
+            actor.reflection_pending = submitted
+            if submitted:
+                self.emit("dream_started", actor.id, generated_by="qwen3:8b")
+            else:
+                retained, forgotten = actor.consolidate_memories(self.state.tick)
+                self._create_deterministic_dream(actor, dreamer_snapshot)
+                self.emit(
+                    "memory_consolidated",
+                    actor.id,
+                    retained=retained,
+                    forgotten=forgotten,
+                    ai_dream=False,
+                )
+        if actor.sleep_ticks_remaining == 0:
+            actor.state = AgentState.AWAKE
+            actor.energy = max(actor.energy, 92)
+            actor.mood = "calm" if not actor.last_dream else actor.mood
+            actor.action = Action(ActionType.IDLE, explanation="I have just awakened")
+            self.emit(
+                "woke_up",
+                actor.id,
+                dream=actor.last_dream,
+                long_memories=len(actor.long_term_memory),
+            )
+
+    def _create_deterministic_dream(self, actor: Entity, snapshot: Entity) -> None:
+        memories = sorted(
+            snapshot.short_term_memory + snapshot.long_term_memory,
+            key=lambda memory: (memory.importance, memory.tick),
+            reverse=True,
+        )[:3]
+        if memories:
+            fragments = "; then ".join(memory.summary for memory in memories)
+            dream = f"I dreamed that {fragments}."
+        else:
+            dream = "I dreamed of an empty road leading toward an unknown future."
+        actor.last_dream = dream
+        actor.dreams.append(dream)
+        del actor.dreams[:-8]
+        actor.remember(
+            dream,
+            tick=self.state.tick,
+            category="dream",
+            importance=0.72,
+            emotion="curious",
+        )
+        actor.consolidate_memories(self.state.tick)
+        self.emit("dream", actor.id, dream=dream, generated_by="simulation")
+
+    def _reflect(self, actor: Entity) -> None:
+        retained, forgotten = actor.consolidate_memories(self.state.tick)
+        actor.mood = "calm"
+        actor.decision_lock_ticks = 0
+        self.emit("reflection", actor.id, retained=retained, forgotten=forgotten)
+
+    def _tell_story(self, actor: Entity, target: Entity | None) -> None:
+        if not self._approach_interaction(actor, target, 20, EntityKind.HUMAN):
+            return
+        assert target is not None
+        if not actor.long_term_memory:
+            actor.decision_lock_ticks = 0
+            return
+        memory = max(actor.long_term_memory, key=lambda item: item.importance)
+        memory.recall_count += 1
+        memory.last_recalled_tick = self.state.tick
+        target.remember(
+            f"{actor.name} told me: {memory.summary}",
+            tick=self.state.tick,
+            category="story",
+            importance=max(0.6, memory.importance * 0.8),
+            emotion=memory.emotion,
+            participants=[actor.id],
+        )
+        actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 6
+        target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 8
+        actor.decision_lock_ticks = 0
+        self.emit("story_told", actor.id, target.id, memory_id=memory.id)
+
+    def _teach(self, actor: Entity, target: Entity | None) -> None:
+        if not self._approach_interaction(actor, target, 20, EntityKind.HUMAN):
+            return
+        assert target is not None
+        if not actor.skills:
+            actor.decision_lock_ticks = 0
+            return
+        skill, level = max(actor.skills.items(), key=lambda item: item[1])
+        before = target.skills.get(skill, 0)
+        target.skills[skill] = before + min(0.5, max(0.1, level * 0.1))
+        target.remember(
+            f"{actor.name} taught me {skill}",
+            tick=self.state.tick,
+            category="learning",
+            importance=0.7,
+            emotion="hopeful",
+            participants=[actor.id],
+        )
+        actor.reputation = min(100, actor.reputation + 1)
+        actor.decision_lock_ticks = 0
+        self.emit("teach", actor.id, target.id, skill=skill)
+
+    def _forgive(self, actor: Entity, target: Entity | None) -> None:
+        if not self._approach_interaction(actor, target, 20, EntityKind.HUMAN):
+            return
+        assert target is not None
+        previous = actor.relationships.get(target.id, 0)
+        actor.relationships[target.id] = min(10, previous + 25)
+        actor.mood = "calm"
+        actor.remember(
+            f"I chose to forgive {target.name}",
+            tick=self.state.tick,
+            category="relationship",
+            importance=0.75,
+            emotion="hopeful",
+            participants=[target.id],
+        )
+        actor.decision_lock_ticks = 0
+        self.emit("forgive", actor.id, target.id, previous_relationship=previous)
 
     def _wander(self, actor: Entity) -> None:
         actor.position.x = min(
@@ -583,6 +760,24 @@ class Simulation:
                     captured = amount // 2
                     if captured:
                         killer.inventory[resource] = killer.inventory.get(resource, 0) + captured
+            killer.remember(
+                f"I killed {target.name}",
+                tick=self.state.tick,
+                category="violence",
+                importance=1.0,
+                emotion="angry" if killer.temperament.aggression > 0.6 else "afraid",
+                participants=[target.id],
+            )
+            for witness in self._nearby_humans(target, 80):
+                if witness.id != killer.id:
+                    witness.remember(
+                        f"I witnessed {killer.name} kill {target.name}",
+                        tick=self.state.tick,
+                        category="violence",
+                        importance=0.95,
+                        emotion="afraid",
+                        participants=[killer.id, target.id],
+                    )
         self.emit("death", killer.id if killer else None, target.id, kind=target.kind)
 
     def _talk(self, actor: Entity, target: Entity | None) -> None:
@@ -610,8 +805,24 @@ class Simulation:
             self.emit("argument", actor.id, target.id)
         elif compatibility > 0.75:
             actor.mood = target.mood = "hopeful"
-        actor.remember(f"Talked with {target.name}")
-        target.remember(f"{actor.name} talked with me")
+        emotion = "angry" if argumentative else "neutral"
+        importance = 0.72 if argumentative else 0.45
+        actor.remember(
+            f"{'Argued' if argumentative else 'Talked'} with {target.name}",
+            tick=self.state.tick,
+            category="relationship",
+            importance=importance,
+            emotion=emotion,
+            participants=[target.id],
+        )
+        target.remember(
+            f"{actor.name} {'argued' if argumentative else 'talked'} with me",
+            tick=self.state.tick,
+            category="relationship",
+            importance=importance,
+            emotion=emotion,
+            participants=[actor.id],
+        )
         actor.decision_lock_ticks = 0
         self.emit("talk", actor.id, target.id, relationship_change=relationship_change)
 
@@ -626,7 +837,8 @@ class Simulation:
             or target.gender == actor.gender
             or actor.reproduction_cooldown
             or target.reproduction_cooldown
-            or target.reproduction_drive < 70
+            or actor.reproduction_drive < 80
+            or target.reproduction_drive < 80
             or not self._in_range(actor, target, 13)
         ):
             return
@@ -634,6 +846,14 @@ class Simulation:
             (actor.position.x + target.position.x) / 2, (actor.position.y + target.position.y) / 2
         )
         if actor.kind == EntityKind.HUMAN:
+            if (
+                len(self.state.living(EntityKind.HUMAN)) >= self.config.max_humans
+                or actor.age_years < 18
+                or target.age_years < 18
+                or actor.relationships.get(target.id, 0) < 12
+                or target.relationships.get(actor.id, 0) < 12
+            ):
+                return
             child = self.spawn_human(position=position, age=0)
             child.profession = Profession.UNASSIGNED
             child.temperament = self._inherit_temperament(actor, target)
@@ -644,10 +864,29 @@ class Simulation:
             actor.relationships[target.id] = actor.relationships.get(target.id, 0) + 10
             target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 10
         else:
+            if len(self.state.living(EntityKind.COW)) >= self.config.max_cows:
+                return
             child = self.spawn_cow(position=position)
         actor.reproduction_drive = target.reproduction_drive = 0
         actor.reproduction_cooldown = target.reproduction_cooldown = 2_000
         actor.decision_lock_ticks = 0
+        if actor.kind == EntityKind.HUMAN:
+            actor.remember(
+                f"{target.name} and I had a child",
+                tick=self.state.tick,
+                category="family",
+                importance=1.0,
+                emotion="hopeful",
+                participants=[target.id, child.id],
+            )
+            target.remember(
+                f"{actor.name} and I had a child",
+                tick=self.state.tick,
+                category="family",
+                importance=1.0,
+                emotion="hopeful",
+                participants=[actor.id, child.id],
+            )
         self.emit("reproduction", actor.id, target.id, child_id=child.id)
 
     def _build(self, actor: Entity, building_type: str) -> None:
@@ -666,6 +905,14 @@ class Simulation:
             owner_id=actor.id,
         )
         self.state.entities[building.id] = building
+        actor.remember(
+            f"I built a {building_type}",
+            tick=self.state.tick,
+            category="creation",
+            importance=0.85,
+            emotion="proud",
+            participants=[building.id],
+        )
         resident_id = None
         if building_type == "house":
             homeless = [
@@ -744,7 +991,14 @@ class Simulation:
         target.relationships[actor.id] = target.relationships.get(actor.id, 0) + 12
         actor.reputation = min(100, actor.reputation + 2)
         actor.mood = "hopeful"
-        target.remember(f"{actor.name} helped me with {resource}")
+        target.remember(
+            f"{actor.name} helped me with {resource}",
+            tick=self.state.tick,
+            category="relationship",
+            importance=0.68,
+            emotion="hopeful",
+            participants=[actor.id],
+        )
         actor.decision_lock_ticks = 0
         self.emit("help", actor.id, target.id, resource=resource)
 
@@ -766,7 +1020,14 @@ class Simulation:
             actor.relationships[target.id] = actor.relationships.get(target.id, 0) - 8
             actor.reputation = max(-100, actor.reputation - 5)
             target.mood = "angry"
-            target.remember(f"{actor.name} stole {resource} from me")
+            target.remember(
+                f"{actor.name} stole {resource} from me",
+                tick=self.state.tick,
+                category="betrayal",
+                importance=0.88,
+                emotion="angry",
+                participants=[actor.id],
+            )
         actor.mood = "proud" if not detected else "afraid"
         actor.decision_lock_ticks = 0
         self.emit("steal", actor.id, target.id, resource=resource, detected=detected)
@@ -779,7 +1040,13 @@ class Simulation:
             max(8, actor.position.y + self.random.uniform(-25, 25)), self.state.height - 8
         )
         actor.mood = "curious"
-        actor.remember("I explored an unfamiliar part of the world")
+        actor.remember(
+            "I explored an unfamiliar part of the world",
+            tick=self.state.tick,
+            category="discovery",
+            importance=0.52,
+            emotion="curious",
+        )
         self.emit("explore", actor.id)
 
     def _form_faction(self, actor: Entity) -> None:
@@ -802,6 +1069,13 @@ class Simulation:
         actor.reputation += 8
         actor.mood = "proud"
         actor.goal = f"make {faction.name} influential"
+        actor.remember(
+            f"I founded {faction.name}",
+            tick=self.state.tick,
+            category="politics",
+            importance=0.95,
+            emotion="proud",
+        )
         self.emit("faction_founded", actor.id, faction_id=faction.id, name=faction.name)
 
     def _recruit(self, actor: Entity, target: Entity | None) -> None:
@@ -819,7 +1093,14 @@ class Simulation:
             target.faction_id = faction.id
             faction.members.append(target.id)
             target.goal = f"help {faction.name} prosper"
-            target.remember(f"I joined {faction.name} at {actor.name}'s invitation")
+            target.remember(
+                f"I joined {faction.name} at {actor.name}'s invitation",
+                tick=self.state.tick,
+                category="politics",
+                importance=0.82,
+                emotion="hopeful",
+                participants=[actor.id],
+            )
             self.emit("recruit", actor.id, target.id, faction_id=faction.id, accepted=True)
         else:
             target.relationships[actor.id] = relationship - 3
@@ -839,6 +1120,17 @@ class Simulation:
             other.rivals.append(own.id)
         actor.mood = "angry"
         actor.goal = f"defeat {other.name}"
+        for member_id in own.members:
+            member = self.state.entities.get(member_id)
+            if member and member.alive:
+                member.remember(
+                    f"Our faction {own.name} went to war with {other.name}",
+                    tick=self.state.tick,
+                    category="war",
+                    importance=0.92,
+                    emotion="angry",
+                    participants=[target.id],
+                )
         self.emit("war_declared", actor.id, target.id, attacker=own.id, defender=other.id)
         actor.decision_lock_ticks = 0
 
@@ -866,7 +1158,13 @@ class Simulation:
         submitted = self.innovation_manager.request_from_actor(self, actor)
         if submitted:
             actor.mood = "curious"
-            actor.remember("I proposed an innovation to change the settlement")
+            actor.remember(
+                "I proposed an innovation to change the settlement",
+                tick=self.state.tick,
+                category="creation",
+                importance=0.8,
+                emotion="curious",
+            )
             self.emit("innovation_proposed", actor.id, goal=actor.goal)
 
     def _sabotage(self, actor: Entity, target: Entity | None) -> None:
@@ -886,10 +1184,14 @@ class Simulation:
         hunger_multiplier = self._world_effect("hunger_rate_multiplier", default=1.0)
         thirst_multiplier = self._world_effect("thirst_rate_multiplier", default=1.0)
         hunger_rate = 0.08 if actor.kind == EntityKind.HUMAN else 0.06
+        if actor.state != AgentState.AWAKE:
+            hunger_rate *= 0.35
+            thirst_multiplier *= 0.35
         actor.hunger = min(120, actor.hunger + hunger_rate * hunger_multiplier)
         actor.thirst = min(120, actor.thirst + 0.1 * thirst_multiplier)
-        actor.social = max(0, actor.social - (0.025 if actor.kind == EntityKind.HUMAN else 0))
-        actor.reproduction_drive = min(100, actor.reproduction_drive + 0.025)
+        if actor.state == AgentState.AWAKE:
+            actor.social = max(0, actor.social - (0.025 if actor.kind == EntityKind.HUMAN else 0))
+            actor.reproduction_drive = min(100, actor.reproduction_drive + 0.025)
         if actor.action.kind not in {ActionType.SLEEP, ActionType.IDLE}:
             actor.energy = max(0, actor.energy - 0.05)
         if actor.action_cooldown:
@@ -1005,14 +1307,34 @@ class Simulation:
         elif event_type == "mineral_boom":
             for _ in range(max(2, len(self.state.living(EntityKind.HUMAN)) // 15)):
                 self.spawn_resource(EntityKind.ROCK)
+        world_memory = {
+            "drought": ("A drought threatened our water and food", 0.82, "afraid"),
+            "wildfire": ("A wildfire scarred the surrounding land", 0.86, "afraid"),
+            "epidemic": ("An epidemic struck the settlement", 0.9, "afraid"),
+            "harvest": ("An abundant harvest renewed our hopes", 0.7, "hopeful"),
+            "mineral_boom": ("New mineral deposits were discovered", 0.68, "curious"),
+        }[event_type]
+        for human in self.state.living(EntityKind.HUMAN):
+            human.remember(
+                world_memory[0],
+                tick=self.state.tick,
+                category="world_event",
+                importance=world_memory[1],
+                emotion=world_memory[2],
+            )
         self.emit("world_event", event=event_type)
 
     def _apply_ai_results(self) -> None:
         if not self.ai_worker:
             return
+        self._apply_reflection_results()
         for result in self.ai_worker.drain():
             entity = self.state.entities.get(result.entity_id)
             if not entity or not entity.alive:
+                continue
+            if entity.state != AgentState.AWAKE:
+                entity.thinking = False
+                self.emit("ai_rejected", entity.id, reason="agent is asleep")
                 continue
             if result.error or not result.intent:
                 entity.thinking = False
@@ -1042,7 +1364,21 @@ class Simulation:
             entity.decision_lock_ticks = 90 if action.target_id else 1
             if action.kind == ActionType.SLEEP:
                 entity.decision_lock_ticks = 12
-            entity.remember(f"I decided to {action.kind}: {action.explanation}")
+            mundane = action.kind in {
+                ActionType.IDLE,
+                ActionType.MOVE,
+                ActionType.EAT,
+                ActionType.DRINK,
+                ActionType.GATHER,
+            }
+            entity.remember(
+                f"I decided to {action.kind}: {action.explanation}",
+                tick=self.state.tick,
+                category="decision",
+                importance=0.25 if mundane else 0.68,
+                emotion="neutral" if mundane else entity.mood,
+                participants=[action.target_id] if action.target_id else [],
+            )
             self.emit(
                 "ai_decision",
                 entity.id,
@@ -1051,6 +1387,61 @@ class Simulation:
                 explanation=action.explanation,
                 goal=entity.goal,
                 mood=entity.mood,
+            )
+
+    def _apply_reflection_results(self) -> None:
+        if not self.ai_worker:
+            return
+        for result in self.ai_worker.drain_reflections():
+            entity = self.state.entities.get(result.entity_id)
+            if not entity or not entity.alive:
+                continue
+            entity.reflection_pending = False
+            if result.error or not result.reflection:
+                self.emit("dream_error", entity.id, error=result.error or "empty reflection")
+                self._create_deterministic_dream(entity, copy.deepcopy(entity))
+                continue
+            reflection = result.reflection
+            important_ids = set(reflection.important_memory_ids)
+            for memory in entity.long_term_memory + entity.short_term_memory:
+                if memory.id in important_ids:
+                    memory.importance = min(1.0, memory.importance + 0.18)
+                    memory.recall_count += 1
+                    memory.last_recalled_tick = self.state.tick
+            entity.last_dream = reflection.dream
+            entity.dreams.append(reflection.dream)
+            del entity.dreams[:-8]
+            entity.goal = reflection.new_goal
+            entity.mood = reflection.mood
+            entity.remember(
+                reflection.insight,
+                tick=self.state.tick,
+                category="insight",
+                importance=0.9,
+                emotion=reflection.mood,
+            )
+            entity.remember(
+                reflection.dream,
+                tick=self.state.tick,
+                category="dream",
+                importance=0.78,
+                emotion=reflection.mood,
+            )
+            retained, forgotten = entity.consolidate_memories(self.state.tick)
+            self.emit(
+                "memory_consolidated",
+                entity.id,
+                retained=retained,
+                forgotten=forgotten,
+                ai_dream=True,
+            )
+            self.emit(
+                "dream",
+                entity.id,
+                dream=reflection.dream,
+                insight=reflection.insight,
+                goal=reflection.new_goal,
+                generated_by="qwen3:8b",
             )
 
     def _schedule_ai(self) -> None:
@@ -1063,6 +1454,7 @@ class Simulation:
             if human.hunger < 78
             and human.thirst < 78
             and human.energy > 20
+            and human.state == AgentState.AWAKE
             and not human.thinking
             and self.state.tick - human.last_ai_tick >= self.config.ai.decision_cooldown_ticks
         ]
@@ -1084,6 +1476,9 @@ class Simulation:
             ActionType.RECRUIT,
             ActionType.DECLARE_WAR,
             ActionType.MAKE_PEACE,
+            ActionType.TELL_STORY,
+            ActionType.TEACH,
+            ActionType.FORGIVE,
         }
         if action.kind in human_targets and (not target or target.kind != EntityKind.HUMAN):
             return "action requires a human target"
@@ -1126,6 +1521,16 @@ class Simulation:
             return "peace requires a leader and a current rival faction"
         if action.kind == ActionType.INNOVATE and not self.innovation_manager:
             return "innovation service unavailable"
+        if action.kind == ActionType.TELL_STORY and not actor.long_term_memory:
+            return "telling a story requires a long-term memory"
+        if action.kind == ActionType.TEACH and not actor.skills:
+            return "teaching requires a learned skill"
+        if (
+            action.kind == ActionType.FORGIVE
+            and target
+            and actor.relationships.get(target.id, 0) >= 0
+        ):
+            return "forgive requires a grievance"
         return None
 
     def context_for(self, actor: Entity) -> dict[str, object]:
@@ -1194,6 +1599,10 @@ class Simulation:
                 "sabotage": "damage a nearby building",
                 "help": "give a resource to a nearby human",
                 "steal": "take a resource and risk creating an enemy",
+                "reflect": "consolidate recent experiences and forget low-value details",
+                "tell_story": "share a defining long-term memory with a nearby human",
+                "teach": "pass your strongest skill to a nearby human",
+                "forgive": "soften a negative relationship with a nearby human",
             },
             "legal_actions": self._legal_actions_for(actor, nearby_entities),
         }
@@ -1204,6 +1613,8 @@ class Simulation:
             ActionType.SLEEP,
             ActionType.EXPLORE,
         }
+        if actor.short_term_memory:
+            actions.add(ActionType.REFLECT)
         if nearby:
             actions.add(ActionType.MOVE)
         if self._inventory_total(actor, ("food", "meat")):
@@ -1227,6 +1638,12 @@ class Simulation:
                     ActionType.ATTACK,
                 }
             )
+            if actor.long_term_memory:
+                actions.add(ActionType.TELL_STORY)
+            if actor.skills:
+                actions.add(ActionType.TEACH)
+            if any(actor.relationships.get(human.id, 0) < 0 for human in humans):
+                actions.add(ActionType.FORGIVE)
         if any(entity.kind == EntityKind.COW for entity in nearby):
             actions.add(ActionType.ATTACK)
         if any(
@@ -1334,7 +1751,16 @@ class Simulation:
             if entity.id != actor.id
             and entity.gender != actor.gender
             and entity.reproduction_cooldown == 0
-            and entity.reproduction_drive >= 70
+            and entity.reproduction_drive >= 80
+            and (
+                actor.kind != EntityKind.HUMAN
+                or (
+                    actor.age_years >= 18
+                    and entity.age_years >= 18
+                    and actor.relationships.get(entity.id, 0) >= 12
+                    and entity.relationships.get(actor.id, 0) >= 12
+                )
+            )
         ]
         return min(
             candidates, key=lambda item: actor.position.distance_to(item.position), default=None
