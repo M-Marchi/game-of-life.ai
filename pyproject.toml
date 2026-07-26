@@ -20,6 +20,7 @@ game-of-life-diagnose = "game_of_life.diagnostics:main"
 
 [dependency-groups]
 dev = [
+    "pillow>=11,<13",
     "pytest>=8.3,<9",
     "pytest-cov>=5,<7",
     "ruff>=0.5,<1",

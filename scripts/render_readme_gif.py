@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import struct
 from pathlib import Path
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -10,91 +9,12 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame
+from PIL import Image, ImageChops, ImageStat
 
 from game_of_life.config import SimulationConfig
 from game_of_life.models import EntityKind
 from game_of_life.persistence import WorldStore
 from game_of_life.ui import SimulationUI
-
-
-def _palette() -> bytes:
-    colors = bytearray()
-    for index in range(256):
-        red = ((index >> 5) & 0x07) * 255 // 7
-        green = ((index >> 2) & 0x07) * 255 // 7
-        blue = (index & 0x03) * 255 // 3
-        colors.extend((red, green, blue))
-    return bytes(colors)
-
-
-def _indexed_pixels(surface: pygame.Surface) -> bytes:
-    rgb = pygame.image.tobytes(surface, "RGB")
-    indexed = bytearray(len(rgb) // 3)
-    output_index = 0
-    for offset in range(0, len(rgb), 3):
-        indexed[output_index] = (
-            ((rgb[offset] >> 5) << 5) | ((rgb[offset + 1] >> 5) << 2) | (rgb[offset + 2] >> 6)
-        )
-        output_index += 1
-    return bytes(indexed)
-
-
-def _lzw_encode(pixels: bytes) -> bytes:
-    clear_code = 256
-    end_code = 257
-    dictionary = {bytes((value,)): value for value in range(256)}
-    next_code = 258
-    code_size = 9
-    bit_buffer = 0
-    bit_count = 0
-    encoded = bytearray()
-
-    def emit(code: int) -> None:
-        nonlocal bit_buffer, bit_count
-        bit_buffer |= code << bit_count
-        bit_count += code_size
-        while bit_count >= 8:
-            encoded.append(bit_buffer & 0xFF)
-            bit_buffer >>= 8
-            bit_count -= 8
-
-    emit(clear_code)
-    prefix = bytes((pixels[0],))
-    for value in pixels[1:]:
-        candidate = prefix + bytes((value,))
-        if candidate in dictionary:
-            prefix = candidate
-            continue
-        emit(dictionary[prefix])
-        if next_code < 4096:
-            dictionary[candidate] = next_code
-            next_code += 1
-            # A GIF decoder grows its dictionary one emitted code behind the encoder: the first
-            # code after CLEAR only initializes its prefix. Switch width after reserving the first
-            # code that needs the wider representation, otherwise every frame corrupts mid-scan.
-            if next_code > 1 << code_size and code_size < 12:
-                code_size += 1
-        else:
-            emit(clear_code)
-            dictionary = {bytes((item,)): item for item in range(256)}
-            next_code = 258
-            code_size = 9
-        prefix = bytes((value,))
-    emit(dictionary[prefix])
-    emit(end_code)
-    if bit_count:
-        encoded.append(bit_buffer & 0xFF)
-    return bytes(encoded)
-
-
-def _sub_blocks(data: bytes) -> bytes:
-    blocks = bytearray()
-    for offset in range(0, len(data), 255):
-        block = data[offset : offset + 255]
-        blocks.append(len(block))
-        blocks.extend(block)
-    blocks.append(0)
-    return bytes(blocks)
 
 
 def write_gif(
@@ -105,22 +25,37 @@ def write_gif(
 ) -> None:
     if not frames:
         raise ValueError("at least one frame is required")
-    width, height = frames[0].get_size()
-    payload = bytearray(b"GIF89a")
-    payload.extend(struct.pack("<HHBBB", width, height, 0xF7, 0, 0))
-    payload.extend(_palette())
-    payload.extend(b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00")
-    for frame in frames:
-        payload.extend(b"\x21\xf9\x04\x04")
-        payload.extend(struct.pack("<H", delay_centiseconds))
-        payload.extend(b"\x00\x00")
-        payload.extend(b"\x2c\x00\x00\x00\x00")
-        payload.extend(struct.pack("<HHB", width, height, 0))
-        payload.append(8)
-        payload.extend(_sub_blocks(_lzw_encode(_indexed_pixels(frame))))
-    payload.append(0x3B)
+    images = [
+        Image.frombytes("RGB", frame.get_size(), pygame.image.tobytes(frame, "RGB"))
+        for frame in frames
+    ]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(payload)
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=delay_centiseconds * 10,
+        loop=0,
+        disposal=2,
+        optimize=True,
+    )
+    _validate_gif(path, images)
+
+
+def _validate_gif(path: Path, references: list[Image.Image]) -> None:
+    with Image.open(path) as rendered:
+        if rendered.n_frames != len(references) or rendered.size != references[0].size:
+            raise ValueError("rendered GIF has an incomplete frame sequence")
+        checkpoints = {0, len(references) * 2 // 5, len(references) - 1}
+        for index in checkpoints:
+            rendered.seek(index)
+            decoded = rendered.convert("RGB")
+            difference = ImageChops.difference(decoded, references[index])
+            mean_error = sum(ImageStat.Stat(difference).mean) / 3
+            if mean_error > 12:
+                raise ValueError(
+                    f"rendered GIF frame {index} is visually corrupted (error {mean_error:.1f})"
+                )
 
 
 def main() -> int:
