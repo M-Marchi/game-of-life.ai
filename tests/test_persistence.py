@@ -42,7 +42,45 @@ def test_event_log_records_payload(empty_config, tmp_path) -> None:
         events = store.recent_events()
 
     assert events[-1].event_type == "custom"
-    assert events[-1].payload == {"value": 3}
+    assert events[-1].payload["value"] == 3
+    assert events[-1].payload["day"] == 1
+    assert events[-1].payload["hour"] == 6
+
+
+def test_loading_a_snapshot_restores_recent_narrative_context(empty_config, tmp_path) -> None:
+    simulation = Simulation(empty_config)
+    path = tmp_path / "world.db"
+    with WorldStore(path) as store:
+        simulation.add_event_sink(store.record_event)
+        human = simulation.spawn_human()
+        simulation.emit("dream", human.id, dream="A river carried a new idea.")
+        store.save_snapshot(simulation)
+        restored = store.load_latest(empty_config)
+
+    assert restored is not None
+    assert restored.events[-1].event_type == "dream"
+    assert restored.events[-1].payload["dream"] == "A river carried a new idea."
+
+
+def test_routine_events_are_aggregated_instead_of_filling_event_log(empty_config, tmp_path) -> None:
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human()
+    with WorldStore(tmp_path / "world.db") as store:
+        simulation.add_event_sink(store.record_event)
+        simulation.emit("gather", human.id, resource="wood")
+        simulation.emit("gather", human.id, resource="wood")
+        narrative_count = store.connection.execute(
+            "SELECT count(*) FROM events WHERE run_id = ? AND event_type = 'gather'",
+            (store.run_id,),
+        ).fetchone()[0]
+        routine_row = store.connection.execute(
+            "SELECT day, activity, detail, count, first_tick, last_tick "
+            "FROM routine_activity WHERE run_id = ? AND entity_id = ?",
+            (store.run_id, human.id),
+        ).fetchone()
+
+    assert narrative_count == 0
+    assert routine_row == (1, "gather", "wood", 2, 0, 0)
 
 
 def test_ai_action_and_target_are_directly_queryable(empty_config, tmp_path) -> None:

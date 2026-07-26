@@ -12,6 +12,28 @@ from game_of_life.config import AIConfig
 from game_of_life.models import Action, ActionType, Entity
 from game_of_life.rules import RuleProposal
 
+TARGETED_ACTIONS = {
+    ActionType.MOVE,
+    ActionType.DRINK,
+    ActionType.GATHER,
+    ActionType.ATTACK,
+    ActionType.TALK,
+    ActionType.MATE,
+    ActionType.TRADE,
+    ActionType.HELP,
+    ActionType.STEAL,
+    ActionType.RECRUIT,
+    ActionType.DECLARE_WAR,
+    ActionType.MAKE_PEACE,
+    ActionType.SABOTAGE,
+    ActionType.TELL_STORY,
+    ActionType.TEACH,
+    ActionType.FORGIVE,
+    ActionType.INSPIRE,
+    ActionType.BEAUTIFY,
+    ActionType.EXPRESS_AFFECTION,
+}
+
 
 class AgentIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -20,7 +42,7 @@ class AgentIntent(BaseModel):
     target_id: str | None = None
     resource: str | None = None
     amount: int = Field(default=1, ge=1, le=20)
-    explanation: str = Field(min_length=1, max_length=300)
+    explanation: str = Field(min_length=1, max_length=160)
     goal: str = Field(min_length=3, max_length=180)
     mood: Literal["calm", "hopeful", "curious", "proud", "afraid", "angry", "sad"]
 
@@ -31,29 +53,10 @@ class AgentIntent(BaseModel):
 
     @model_validator(mode="after")
     def require_action_arguments(self) -> AgentIntent:
-        target_actions = {
-            ActionType.MOVE,
-            ActionType.DRINK,
-            ActionType.GATHER,
-            ActionType.ATTACK,
-            ActionType.TALK,
-            ActionType.MATE,
-            ActionType.TRADE,
-            ActionType.HELP,
-            ActionType.STEAL,
-            ActionType.RECRUIT,
-            ActionType.DECLARE_WAR,
-            ActionType.MAKE_PEACE,
-            ActionType.SABOTAGE,
-            ActionType.TELL_STORY,
-            ActionType.TEACH,
-            ActionType.FORGIVE,
-            ActionType.INSPIRE,
-            ActionType.BEAUTIFY,
-            ActionType.EXPRESS_AFFECTION,
-        }
-        if self.action in target_actions and not self.target_id:
+        if self.action in TARGETED_ACTIONS and not self.target_id:
             raise ValueError(f"{self.action} requires target_id")
+        if self.target_id and self.action not in TARGETED_ACTIONS:
+            raise ValueError(f"{self.action} does not accept target_id")
         return self
 
     def to_action(self) -> Action:
@@ -115,7 +118,7 @@ class FakeAIClient:
             name="Water carrier",
             description="Carries water to inhabitants who are far from a lake.",
             outputs={"water": 1},
-            duration_ticks=20,
+            duration_ticks=300,
             activation_reason="The settlement has a water shortage.",
         )
 
@@ -195,8 +198,16 @@ class OllamaAIClient:
         legal_actions = list(context.get("legal_actions", []))
         if legal_actions:
             response_schema["$defs"]["ActionType"]["enum"] = legal_actions
+        nearby_ids = [str(item["id"]) for item in context.get("nearby", [])]
+        response_schema["properties"]["target_id"] = {
+            "anyOf": [
+                {"type": "string", "enum": nearby_ids},
+                {"type": "null"},
+            ],
+            "default": None,
+        }
         last_error: Exception | None = None
-        for _ in range(2):
+        for _ in range(3):
             response = self._request(
                 "/api/chat",
                 {
@@ -213,14 +224,18 @@ class OllamaAIClient:
             )
             content = response.get("message", {}).get("content", "")
             try:
-                intent = AgentIntent.model_validate_json(content)
+                raw_intent = json.loads(content)
+                action = ActionType(raw_intent.get("action"))
+                if action not in TARGETED_ACTIONS:
+                    raw_intent["target_id"] = None
+                intent = AgentIntent.model_validate(raw_intent)
                 legal_actions = set(context.get("legal_actions", []))
                 if legal_actions and intent.action.value not in legal_actions:
                     raise ValueError(
                         f"{intent.action.value} is unavailable; choose from {sorted(legal_actions)}"
                     )
-                nearby_ids = {item["id"] for item in context.get("nearby", [])}
-                if intent.target_id and intent.target_id not in nearby_ids:
+                supplied_ids = {item["id"] for item in context.get("nearby", [])}
+                if intent.target_id and intent.target_id not in supplied_ids:
                     raise ValueError("target_id must identify a supplied nearby entity")
                 return intent
             except (TypeError, ValueError) as exc:
@@ -246,14 +261,19 @@ class OllamaAIClient:
             "safe data-only profession, recipe, building, or bounded world rule that addresses "
             "the measured shortage. Use only wood, water, food, meat, stone, and tools. "
             "For shortages prefer a recipe or profession with explicit requirements and outputs. "
-            "A profession may instead improve human life using effects between 0.1 and 10: "
-            "knowledge_gain, beauty_gain, health_gain, social_gain, confidence_gain, or "
-            "stress_relief. This allows original jobs "
-            "such as counselors, researchers, artists, teachers, gardeners, or mediators. "
-            "For such a social profession set outputs={} and put those gains only in effects; "
+            "A profession may instead improve human life through 1-4 composable impacts. Each "
+            "impact chooses a metric (health, stress, social, confidence, knowledge, beauty, "
+            "hunger, thirst, energy, affinity, or trust), a scope (self, nearby, or "
+            "most_in_need), an amount from 0.1 to 10, and a radius from 5 to 80. Combine impacts "
+            "to create original but mechanically meaningful jobs such as counselors, researchers, "
+            "artists, teachers, gardeners, mediators, caregivers, or community organizers. "
+            "For such a social profession set outputs={} and use impacts; "
             "outputs is exclusively for physical resources such as food or tools. "
             "Use requirements={} for counselors, teachers, mediators, and other services that do "
             "not physically consume materials. "
+            "For a resource shortage, the proposal must measurably address that exact resource: "
+            "produce it, reduce the corresponding hunger/thirst, or use its allowed world effect. "
+            "A water counselor that only changes knowledge or stress is not a water solution. "
             "For personal innovations, reflect the proposer's goal, values, knowledge, and "
             "temperament while keeping the role useful to society. "
             "World rule effects may only be food_regeneration, wood_regeneration, "
@@ -263,7 +283,7 @@ class OllamaAIClient:
         )
         messages = [{"role": "user", "content": prompt}]
         last_error: Exception | None = None
-        for _ in range(2):
+        for _ in range(3):
             response = self._request(
                 "/api/chat",
                 {
@@ -277,8 +297,23 @@ class OllamaAIClient:
             )
             content = response.get("message", {}).get("content", "")
             try:
-                return RuleProposal.model_validate_json(content)
-            except (TypeError, ValidationError) as exc:
+                proposal = RuleProposal.model_validate_json(content)
+                shortage = context.get("shortage", {})
+                resource = shortage.get("resource") if isinstance(shortage, dict) else None
+                if resource and not proposal.addresses_shortage(str(resource)):
+                    raise ValueError(f"proposal does not measurably address {resource} shortage")
+                unsupported_claims = {
+                    item
+                    for item in proposal.claimed_shortages()
+                    if not proposal.addresses_shortage(item)
+                }
+                if unsupported_claims:
+                    raise ValueError(
+                        "proposal claims but does not address shortages: "
+                        f"{sorted(unsupported_claims)}"
+                    )
+                return proposal
+            except (TypeError, ValueError) as exc:
                 last_error = exc
                 messages.extend(
                     [
@@ -287,12 +322,13 @@ class OllamaAIClient:
                             "role": "user",
                             "content": (
                                 "The validator rejected that proposal. Correct it without "
-                                "inventing new fields or effects. Profession and recipe rules "
+                                "inventing new fields or effects. Resource professions and recipes "
                                 "must use outputs; "
                                 "Physical outputs may only contain wood, water, food, meat, stone, "
-                                "or tools. Put knowledge_gain, beauty_gain, health_gain, "
-                                "social_gain, confidence_gain, and stress_relief in effects, "
-                                "never in outputs. "
+                                "or tools. Use impacts for human development and outputs for "
+                                "physical resources. "
+                                "For a profession set effects={} and express every non-resource "
+                                "change through impacts. "
                                 "Effects must match the allowed category-specific effect list. "
                                 f"VALIDATION_ERROR={exc}"
                             ),

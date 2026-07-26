@@ -25,8 +25,12 @@ def test_pygame_can_render_headless(empty_config, monkeypatch) -> None:
 
         other = simulation.spawn_human(position=Position(human.position.x + 2, human.position.y))
         simulation._talk(human, other)
-        ui.graph_mode = True
+        ui.insight_mode = True
         ui.draw()
+        ui.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_TAB))
+        assert not ui.insight_mode
+        ui.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i))
+        assert ui.insight_mode
         assert screen.get_size() == (
             empty_config.width + empty_config.panel_width,
             empty_config.height,

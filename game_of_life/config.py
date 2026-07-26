@@ -11,8 +11,9 @@ class AIConfig:
     endpoint: str = "http://127.0.0.1:11434"
     timeout_seconds: float = 120.0
     decision_interval_ticks: int = 20
-    decision_cooldown_ticks: int = 240
+    decision_cooldown_ticks: int = 1_200
     max_pending_requests: int = 4
+    result_max_age_ticks: int = 600
 
 
 @dataclass(slots=True)
@@ -22,6 +23,11 @@ class SimulationConfig:
     panel_width: int = 320
     fps: int = 30
     ticks_per_second: int = 10
+    day_length_minutes: float = 4.0
+    day_start_hour: float = 6.0
+    daylight_start_hour: float = 6.0
+    night_start_hour: float = 22.0
+    sleep_hours: float = 8.0
     seed: int = 42
     initial_humans: int = 8
     max_humans: int = 24
@@ -31,12 +37,29 @@ class SimulationConfig:
     initial_rocks: int = 24
     initial_lakes: int = 5
     autosave_interval_ticks: int = 500
-    world_event_interval_ticks: int = 1_200
-    sleep_duration_ticks: int = 160
-    dream_start_ticks: int = 80
-    vocation_review_interval_ticks: int = 300
+    world_event_interval_ticks: int = 2_400
+    sleep_duration_ticks: int | None = None
+    dream_start_ticks: int | None = None
+    vocation_review_interval_ticks: int = 2_400
+    purposeful_action_cooldown_ticks: int = 300
     mental_snapshot_interval_ticks: int = 1_800
     ai: AIConfig = field(default_factory=AIConfig)
+
+    @property
+    def ticks_per_day(self) -> int:
+        return max(24, round(self.day_length_minutes * 60 * self.ticks_per_second))
+
+    @property
+    def resolved_sleep_duration_ticks(self) -> int:
+        if self.sleep_duration_ticks is not None:
+            return max(1, self.sleep_duration_ticks)
+        return max(1, round(self.ticks_per_day * self.sleep_hours / 24))
+
+    @property
+    def resolved_dream_start_ticks(self) -> int:
+        if self.dream_start_ticks is not None:
+            return max(0, self.dream_start_ticks)
+        return self.resolved_sleep_duration_ticks // 2
 
 
 def load_config(*, ai_enabled: bool | None = None, seed: int | None = None) -> SimulationConfig:

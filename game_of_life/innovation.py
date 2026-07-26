@@ -15,17 +15,41 @@ if TYPE_CHECKING:
 class InnovationManager:
     worker: AIWorker
     registry: RuleRegistry = field(default_factory=RuleRegistry)
-    interval_ticks: int = 1_000
+    interval_ticks: int = 7_200
     _hydrated: bool = False
     _baselines: dict[str, tuple[int, dict[str, int]]] = field(default_factory=dict)
+    _last_activation_tick: int = -1_000_000_000
 
     def step(self, simulation: Simulation) -> None:
         self._hydrate(simulation)
+        self.apply_results(simulation)
+        self._monitor(simulation)
+        if (
+            simulation.state.tick
+            and simulation.state.tick % self.interval_ticks == 0
+            and self._innovation_available(simulation)
+        ):
+            societal_need = self._largest_need(simulation)
+            if societal_need:
+                self.worker.submit_rule(
+                    {
+                        "tick": simulation.state.tick,
+                        "seed": simulation.state.seed,
+                        "population": len(simulation.state.living(EntityKind.HUMAN)),
+                        "shortage": societal_need,
+                        "resources": self._resource_totals(simulation),
+                        "human_development": self._human_development(simulation),
+                        "professions": self._profession_counts(simulation),
+                        "existing_rules": self._rule_summaries(),
+                    }
+                )
+
+    def apply_results(self, simulation: Simulation) -> None:
         for result in self.worker.drain_rules():
             if result.error or not result.proposal:
                 simulation.emit("rule_error", error=result.error or "empty proposal")
                 continue
-            validation = self._shadow_validate(result.proposal, simulation)
+            validation = self._shadow_validate(result.proposal, simulation, result.context)
             if not validation.accepted:
                 self.registry.rejected[result.proposal.id] = validation.reasons
                 simulation.emit(
@@ -37,6 +61,7 @@ class InnovationManager:
             self.registry.activate(result.proposal)
             definition = result.proposal.model_dump(mode="json")
             simulation.state.active_rules[result.proposal.id] = definition
+            self._last_activation_tick = simulation.state.tick
             self._baselines[result.proposal.id] = (
                 simulation.state.tick,
                 self._resource_totals(simulation),
@@ -49,31 +74,22 @@ class InnovationManager:
                 definition=definition,
             )
 
-        self._monitor(simulation)
-        if simulation.state.tick and simulation.state.tick % self.interval_ticks == 0:
-            societal_need = self._largest_need(simulation)
-            if societal_need:
-                self.worker.submit_rule(
-                    {
-                        "tick": simulation.state.tick,
-                        "seed": simulation.state.seed,
-                        "population": len(simulation.state.living(EntityKind.HUMAN)),
-                        "shortage": societal_need,
-                        "resources": self._resource_totals(simulation),
-                        "human_development": self._human_development(simulation),
-                        "professions": self._profession_counts(simulation),
-                        "existing_rules": sorted(self.registry.active),
-                    }
-                )
-
     def request_from_actor(self, simulation: Simulation, actor: Entity) -> bool:
+        if not self._innovation_available(simulation):
+            simulation.emit(
+                "innovation_deferred",
+                actor.id,
+                reason="the settlement needs time to absorb its latest innovation",
+                available_tick=self._last_activation_tick + simulation.config.ticks_per_day // 4,
+            )
+            return False
         return self.worker.submit_rule(
             {
                 "tick": simulation.state.tick,
                 "seed": simulation.state.seed,
                 "population": len(simulation.state.living(EntityKind.HUMAN)),
                 "resources": self._resource_totals(simulation),
-                "existing_rules": sorted(self.registry.active),
+                "existing_rules": self._rule_summaries(),
                 "proposer_id": actor.id,
                 "proposer_name": actor.name,
                 "proposer_goal": actor.goal,
@@ -94,18 +110,74 @@ class InnovationManager:
         for definition in simulation.state.active_rules.values():
             proposal = RuleProposal.model_validate(definition)
             self.registry.active[proposal.id] = proposal
+        if self.registry.active:
+            self._last_activation_tick = simulation.state.tick
         self._hydrated = True
 
-    def _shadow_validate(self, proposal: RuleProposal, simulation: Simulation) -> RuleValidation:
+    def _innovation_available(self, simulation: Simulation) -> bool:
+        cooldown = max(1, simulation.config.ticks_per_day // 4)
+        return simulation.state.tick - self._last_activation_tick >= cooldown
+
+    def _shadow_validate(
+        self,
+        proposal: RuleProposal,
+        simulation: Simulation,
+        context: dict[str, object] | None = None,
+    ) -> RuleValidation:
         validation = self.registry.validate(proposal)
         if not validation.accepted:
             return validation
+        shortage = (context or {}).get("shortage", {})
+        resource = shortage.get("resource") if isinstance(shortage, dict) else None
+        if resource and not proposal.addresses_shortage(str(resource)):
+            return RuleValidation(False, (f"proposal does not address {resource} shortage",))
+        unsupported_claims = {
+            item for item in proposal.claimed_shortages() if not proposal.addresses_shortage(item)
+        }
+        if unsupported_claims:
+            return RuleValidation(
+                False,
+                (f"claimed shortages lack mechanical impact: {sorted(unsupported_claims)}",),
+            )
+        normalized_name = " ".join(proposal.name.casefold().replace("-", " ").split())
+        for current in self.registry.active.values():
+            current_name = " ".join(current.name.casefold().replace("-", " ").split())
+            if normalized_name == current_name or self._functional_signature(
+                proposal
+            ) == self._functional_signature(current):
+                return RuleValidation(False, (f"duplicates active rule {current.id}",))
         population = max(1, len(simulation.state.living(EntityKind.HUMAN)))
         projected_cycles = 1_000 / proposal.duration_ticks * population
         projected_output = sum(proposal.outputs.values()) * projected_cycles
         if projected_output > max(2_000, population * 150):
             return RuleValidation(False, ("shadow simulation predicts runaway production",))
         return validation
+
+    def _rule_summaries(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": proposal.id,
+                "name": proposal.name,
+                "category": proposal.category,
+                "outputs": proposal.outputs,
+                "effects": proposal.effects,
+                "impacts": [impact.model_dump(mode="json") for impact in proposal.impacts],
+            }
+            for proposal in sorted(self.registry.active.values(), key=lambda item: item.id)
+        ]
+
+    @staticmethod
+    def _functional_signature(proposal: RuleProposal) -> tuple[object, ...]:
+        impacts = tuple(
+            sorted((item.metric, item.scope, round(item.amount, 1)) for item in proposal.impacts)
+        )
+        return (
+            proposal.category,
+            tuple(sorted(proposal.requirements.items())),
+            tuple(sorted(proposal.outputs.items())),
+            tuple(sorted((key, round(value, 1)) for key, value in proposal.effects.items())),
+            impacts,
+        )
 
     def _monitor(self, simulation: Simulation) -> None:
         totals = self._resource_totals(simulation)
@@ -139,6 +211,7 @@ class InnovationManager:
             candidate = None
         if not candidate:
             effects = proposal.effects
+            impact_metrics = {impact.metric for impact in proposal.impacts}
             candidate = max(
                 (human for human in humans if human.profession == Profession.UNASSIGNED),
                 key=lambda human: (
@@ -148,6 +221,12 @@ class InnovationManager:
                     + human.temperament.sociability * effects.get("social_gain", 0)
                     + human.temperament.ambition * effects.get("confidence_gain", 0)
                     + human.temperament.empathy * effects.get("stress_relief", 0)
+                    + human.temperament.curiosity * ("knowledge" in impact_metrics)
+                    + human.temperament.creativity * ("beauty" in impact_metrics)
+                    + human.temperament.empathy
+                    * len(impact_metrics & {"health", "stress", "hunger", "thirst"})
+                    + human.temperament.sociability
+                    * len(impact_metrics & {"social", "affinity", "trust"})
                 ),
                 default=None,
             )

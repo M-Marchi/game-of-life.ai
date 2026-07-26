@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
+
+from game_of_life.config import SimulationConfig
 from game_of_life.engine import Simulation
-from game_of_life.models import Action, ActionType, EntityKind, Position
+from game_of_life.models import Action, ActionType, AgentState, EntityKind, Position, Profession
+
+
+def test_default_world_day_lasts_four_real_minutes() -> None:
+    config = SimulationConfig()
+
+    assert config.ticks_per_day == 2_400
+    assert config.ticks_per_day / config.ticks_per_second == 4 * 60
 
 
 def test_same_seed_produces_same_world(empty_config) -> None:
@@ -42,6 +52,80 @@ def test_reproduction_creates_exactly_one_child(empty_config) -> None:
     humans = simulation.state.living(EntityKind.HUMAN)
     assert len(humans) == 3
     assert len([event for event in simulation.events if event.event_type == "reproduction"]) == 1
+
+
+def test_world_clock_runs_from_morning_through_a_full_24_hour_day(empty_config) -> None:
+    empty_config.ticks_per_second = 1
+    empty_config.day_length_minutes = 0.4
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human()
+    human.hunger = human.thirst = -100
+
+    assert simulation.world_time() == {
+        "day": 1,
+        "hour": 6,
+        "minute": 0,
+        "phase": "dawn",
+        "is_daylight": True,
+    }
+
+    for _ in range(16):
+        simulation.step()
+    assert human.state == AgentState.SLEEPING
+    assert simulation.world_time()["hour"] == 22
+    sleep_event = next(event for event in simulation.events if event.event_type == "sleep_started")
+    assert sleep_event.payload["rest_type"] == "night"
+    assert sleep_event.payload["duration_ticks"] == 8
+
+    for _ in range(8):
+        simulation.step()
+    assert human.state == AgentState.AWAKE
+    assert simulation.world_time()["day"] == 2
+    assert simulation.world_time()["hour"] == 6
+
+
+def test_humans_eat_and_drink_twice_per_day(empty_config) -> None:
+    empty_config.ticks_per_second = 1
+    empty_config.day_length_minutes = 0.4
+    empty_config.world_event_interval_ticks = 0
+    empty_config.vocation_review_interval_ticks = 0
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human(position=Position(100, 100))
+    human.hunger = human.thirst = 54.9
+    human.inventory["food"] = 10
+    lake = simulation.spawn_resource(EntityKind.LAKE)
+    lake.position = Position(100, 100)
+
+    for _ in range(empty_config.ticks_per_day * 3):
+        simulation.step()
+
+    daily = Counter(
+        (event.payload["day"], event.event_type)
+        for event in simulation.events
+        if event.event_type in {"eat", "drink"}
+    )
+    for day in (1, 2, 3):
+        assert daily[(day, "eat")] == 2
+        assert daily[(day, "drink")] == 2
+
+
+def test_meaningful_work_has_a_simulated_half_hour_cooldown(empty_config) -> None:
+    empty_config.purposeful_action_cooldown_ticks = 300
+    simulation = Simulation(empty_config)
+    human = simulation.spawn_human(position=Position(100, 100))
+    human.profession = Profession.GATHERER
+    tree = simulation.spawn_resource(EntityKind.TREE)
+    tree.position = Position(100, 100)
+
+    for _ in range(100):
+        simulation.step()
+
+    gathers = [
+        event
+        for event in simulation.events
+        if event.event_type == "gather" and event.actor_id == human.id
+    ]
+    assert len(gathers) == 1
 
 
 def test_attack_kills_cow_and_produces_meat(empty_config) -> None:

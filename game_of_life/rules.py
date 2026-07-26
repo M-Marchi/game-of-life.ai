@@ -39,6 +39,46 @@ EffectName = Literal[
 SAFE_ID = re.compile(r"^[a-z][a-z0-9_-]{2,39}$")
 
 
+class ProfessionImpact(BaseModel):
+    """A bounded, data-only change produced when a generated profession works."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric: Literal[
+        "health",
+        "stress",
+        "social",
+        "confidence",
+        "knowledge",
+        "beauty",
+        "hunger",
+        "thirst",
+        "energy",
+        "affinity",
+        "trust",
+    ]
+    scope: Literal["self", "nearby", "most_in_need"] = "self"
+    amount: float = Field(gt=0, le=10)
+    radius: float = Field(default=30, ge=5, le=80)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_reduction_sign(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        metric = value.get("metric")
+        amount = value.get("amount")
+        if metric in {"stress", "hunger", "thirst"} and isinstance(amount, (int, float)):
+            return {**value, "amount": abs(amount)}
+        return value
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> ProfessionImpact:
+        if self.metric in {"beauty", "affinity", "trust"} and self.scope == "self":
+            raise ValueError(f"{self.metric} requires nearby or most_in_need scope")
+        return self
+
+
 class RuleProposal(BaseModel):
     """A data-only rule proposed by the model. It can never contain executable code."""
 
@@ -58,13 +98,21 @@ class RuleProposal(BaseModel):
         description="Physical output resources only; never put social effects here.",
     )
     workplace: str | None = None
-    duration_ticks: int = Field(default=20, ge=1, le=10_000)
+    duration_ticks: int = Field(default=300, ge=30, le=10_000)
     effects: dict[EffectName, Annotated[float, Field(gt=0, le=10)]] = Field(
         default_factory=dict,
         description=(
             "Non-resource effects. Professions use knowledge_gain, beauty_gain, health_gain, "
             "social_gain, confidence_gain, stress_relief; world rules use regeneration or need "
             "multipliers."
+        ),
+    )
+    impacts: list[ProfessionImpact] = Field(
+        default_factory=list,
+        max_length=4,
+        description=(
+            "Composable effects produced by a profession. Each impact changes only an approved "
+            "world metric for bounded recipients and can never execute code."
         ),
     )
     activation_reason: str = Field(min_length=5, max_length=300)
@@ -82,8 +130,13 @@ class RuleProposal(BaseModel):
             raise ValueError("resource quantities must be between 1 and 100")
         if self.category == "recipe" and not self.outputs:
             raise ValueError("recipes require at least one output")
-        if self.category == "profession" and not self.outputs and not self.effects:
-            raise ValueError("professions require outputs or a social effect")
+        if (
+            self.category == "profession"
+            and not self.outputs
+            and not self.effects
+            and not self.impacts
+        ):
+            raise ValueError("professions require outputs, a legacy effect, or an impact")
         if self.category == "building" and not self.requirements:
             raise ValueError("buildings require a non-empty construction cost")
         unknown_effects = set(self.effects) - KNOWN_EFFECTS
@@ -95,7 +148,40 @@ class RuleProposal(BaseModel):
             raise ValueError("professions may only use profession effects")
         if self.category not in {"world_rule", "profession"} and self.effects:
             raise ValueError("only world rules and professions may define effects")
+        if self.category != "profession" and self.impacts:
+            raise ValueError("only professions may define impacts")
         return self
+
+    def addresses_shortage(self, resource: str) -> bool:
+        if self.outputs.get(resource, 0) > 0:
+            return True
+        metrics = {impact.metric for impact in self.impacts}
+        legacy = set(self.effects)
+        alternatives = {
+            "water": ({"thirst"}, {"thirst_rate_multiplier"}),
+            "food": ({"hunger"}, {"hunger_rate_multiplier", "food_regeneration"}),
+            "wood": (set(), {"wood_regeneration"}),
+            "stone": (set(), {"stone_regeneration"}),
+            "tools": (set(), set()),
+            "meat": ({"hunger"}, set()),
+        }
+        impact_metrics, effect_names = alternatives.get(resource, (set(), set()))
+        return bool(metrics & impact_metrics or legacy & effect_names)
+
+    def claimed_shortages(self) -> set[str]:
+        text = f"{self.name} {self.description} {self.activation_reason}".casefold()
+        shortage_language = (
+            "shortage",
+            "scarcity",
+            "not enough",
+            "limited supply",
+            "lacks ",
+            "lack of",
+            "has no ",
+        )
+        if not any(marker in text for marker in shortage_language):
+            return set()
+        return {resource for resource in KNOWN_RESOURCES if resource in text}
 
 
 @dataclass(frozen=True, slots=True)

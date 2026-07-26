@@ -27,6 +27,17 @@ def test_empty_target_is_normalized_for_non_targeted_action() -> None:
     assert intent.target_id is None
 
 
+def test_non_targeted_action_rejects_extraneous_target() -> None:
+    with pytest.raises(ValidationError):
+        AgentIntent(
+            action=ActionType.STUDY,
+            target_id="tree-1",
+            explanation="I want to learn.",
+            goal="understand the world",
+            mood="curious",
+        )
+
+
 def test_generated_rule_repairs_invalid_first_response(monkeypatch) -> None:
     client = OllamaAIClient(AIConfig())
     responses = iter(
@@ -109,6 +120,39 @@ def test_decision_schema_is_restricted_to_context_actions(monkeypatch) -> None:
         "idle",
         "explore",
     ]
+    target_schema = captured_payloads[0]["format"]["properties"]["target_id"]
+    assert target_schema["anyOf"][0]["enum"] == []
+
+
+def test_client_discards_irrelevant_target_from_non_targeted_action(monkeypatch) -> None:
+    client = OllamaAIClient(AIConfig())
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda *_args, **_kwargs: {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "action": "explore",
+                        "target_id": "tree-1",
+                        "resource": None,
+                        "amount": 1,
+                        "explanation": "I want to map the forest.",
+                        "goal": "discover an unknown place",
+                        "mood": "curious",
+                    }
+                )
+            }
+        },
+    )
+
+    intent = client.decide(
+        _human(),
+        {"legal_actions": ["explore"], "nearby": [{"id": "tree-1"}]},
+    )
+
+    assert intent.action == ActionType.EXPLORE
+    assert intent.target_id is None
 
 
 def test_dream_keeps_only_supplied_memory_ids(monkeypatch) -> None:

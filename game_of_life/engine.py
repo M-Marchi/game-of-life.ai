@@ -45,7 +45,7 @@ BUILTIN_RECIPES = {
         "category": "recipe",
         "requirements": {"wood": 1, "stone": 2},
         "outputs": {"tools": 1},
-        "duration_ticks": 35,
+        "duration_ticks": 300,
     }
 }
 
@@ -78,12 +78,16 @@ class Simulation:
             self.spawn_resource(EntityKind.LAKE)
         for index in range(self.config.initial_humans):
             human = self.spawn_human()
+            human.hunger = 54.9
+            human.thirst = 54.9
             human.profession = INITIAL_PROFESSIONS[index % len(INITIAL_PROFESSIONS)]
             human.inventory["food"] = 2
             if human.profession == Profession.BUILDER:
                 human.inventory.update({"wood": 10, "stone": 3})
         for _ in range(self.config.initial_cows):
-            self.spawn_cow()
+            cow = self.spawn_cow()
+            cow.hunger = 47.9
+            cow.thirst = 54.9
 
     def add_event_sink(self, sink: Callable[[WorldEvent], None]) -> None:
         self._event_sinks.append(sink)
@@ -95,7 +99,10 @@ class Simulation:
         target_id: str | None = None,
         **payload: object,
     ) -> None:
-        event = WorldEvent(self.state.tick, event_type, actor_id, target_id, dict(payload))
+        timed_payload = dict(payload)
+        for key, value in self.world_time().items():
+            timed_payload.setdefault(key, value)
+        event = WorldEvent(self.state.tick, event_type, actor_id, target_id, timed_payload)
         self.events.append(event)
         if len(self.events) > 300:
             del self.events[:-300]
@@ -178,13 +185,36 @@ class Simulation:
                 self._update_needs(actor)
                 continue
             urgent_need = self._has_urgent_survival_need(actor)
-            if actor.decision_lock_ticks > 0 and not urgent_need:
+            if self._should_sleep_now(actor) and not urgent_need:
+                actor.decision_lock_ticks = 0
+                actor.action = Action(ActionType.SLEEP, explanation="Night has fallen")
+            elif actor.decision_lock_ticks > 0 and not urgent_need:
                 actor.decision_lock_ticks -= 1
             else:
                 if urgent_need:
                     actor.decision_lock_ticks = 0
                 actor.action = self._choose_local_action(actor)
+            previous_event = self.events[-1] if self.events else None
             self._resolve(actor)
+            latest_event = self.events[-1] if self.events else None
+            if (
+                actor.kind == EntityKind.HUMAN
+                and latest_event is not previous_event
+                and latest_event is not None
+                and latest_event.actor_id == actor.id
+                and actor.action.kind
+                not in {
+                    ActionType.IDLE,
+                    ActionType.MOVE,
+                    ActionType.EAT,
+                    ActionType.DRINK,
+                    ActionType.SLEEP,
+                }
+            ):
+                actor.action_cooldown = max(
+                    actor.action_cooldown,
+                    self.config.purposeful_action_cooldown_ticks,
+                )
             self._update_needs(actor)
         self._regenerate_resources()
         self._update_factions()
@@ -214,6 +244,8 @@ class Simulation:
             return self._approach_or(ActionType.ATTACK, actor, cow, 14, "I need meat")
         if actor.energy <= 22:
             return Action(ActionType.SLEEP, explanation="I am exhausted")
+        if actor.action_cooldown:
+            return Action(ActionType.IDLE, explanation="Taking time between meaningful activities")
         if actor.aesthetic_need >= 72 and actor.energy > 35:
             return Action(ActionType.SELF_CARE, explanation="I want my appearance to express me")
         if actor.growth_drive >= 82 and actor.energy > 45 and self.random.random() < 0.025:
@@ -260,7 +292,8 @@ class Simulation:
             temperament.creativity,
             temperament.risk_tolerance,
         )
-        if self.random.random() > 0.001 + strongest_drive * 0.002:
+        personality_chances_per_day = 2 + strongest_drive * 2
+        if self.random.random() > personality_chances_per_day / self.config.ticks_per_day:
             return None
 
         faction = self.state.factions.get(actor.faction_id or "")
@@ -541,6 +574,13 @@ class Simulation:
             )
             if not applies:
                 continue
+            destination = self._dynamic_work_destination(actor, rule)
+            if destination:
+                return Action(
+                    ActionType.MOVE,
+                    destination.id,
+                    explanation=f"Seeking someone or somewhere helped by {rule['name']}",
+                )
             requirements = rule.get("requirements", {})
             missing = next(
                 (
@@ -562,6 +602,58 @@ class Simulation:
                 )
             action = ActionType.BUILD if rule["category"] == "building" else ActionType.WORK
             return Action(action, resource=rule["id"], explanation=f"Working on {rule['name']}")
+        return None
+
+    def _dynamic_work_destination(
+        self, actor: Entity, rule: dict[str, object]
+    ) -> Entity | None:
+        impacts = rule.get("impacts", [])
+        if not isinstance(impacts, list):
+            return None
+        priority = {
+            "health": 0,
+            "stress": 1,
+            "hunger": 2,
+            "thirst": 3,
+            "knowledge": 4,
+            "social": 5,
+            "affinity": 6,
+            "trust": 7,
+            "beauty": 8,
+        }
+        service_impacts = sorted(
+            (impact for impact in impacts if isinstance(impact, dict)),
+            key=lambda impact: (
+                0 if str(impact.get("scope", "self")) == "most_in_need" else 1,
+                priority.get(str(impact.get("metric", "")), 99),
+            ),
+        )
+        for impact in service_impacts:
+            metric = str(impact["metric"])
+            scope = str(impact.get("scope", "self"))
+            if scope == "self":
+                continue
+            radius = min(80.0, max(5.0, float(impact.get("radius", 30))))
+            if metric == "beauty":
+                candidates = [
+                    entity
+                    for entity in self.state.living(EntityKind.BUILDING)
+                    if entity.beauty < 100
+                ]
+                destination = min(candidates, key=lambda item: item.beauty, default=None)
+            else:
+                candidates = [
+                    human
+                    for human in self.state.living(EntityKind.HUMAN)
+                    if human.id != actor.id
+                ]
+                destination = self._most_in_need(candidates, metric)
+            if destination:
+                if actor.position.distance_to(destination.position) > radius:
+                    return destination
+                # One reachable beneficiary is enough to begin a service cycle. Requiring every
+                # impact's ideal recipient to overlap makes multi-impact professions oscillate.
+                return None
         return None
 
     def _resolve(self, actor: Entity) -> None:
@@ -647,14 +739,33 @@ class Simulation:
         if actor.state != AgentState.AWAKE:
             return
         actor.state = AgentState.SLEEPING
-        actor.sleep_ticks_remaining = self.config.sleep_duration_ticks
+        if self.config.sleep_duration_ticks is not None or actor.kind != EntityKind.HUMAN:
+            sleep_ticks = self.config.resolved_sleep_duration_ticks
+        else:
+            current = self.world_time()
+            hour_value = float(current["hour"]) + float(current["minute"]) / 60
+            if current["is_daylight"]:
+                sleep_hours = 1.5
+            else:
+                sleep_hours = (self.config.daylight_start_hour - hour_value) % 24
+                sleep_hours = sleep_hours or self.config.sleep_hours
+            sleep_ticks = max(1, round(self.config.ticks_per_day * sleep_hours / 24))
+        actor.sleep_ticks_remaining = sleep_ticks
         actor.decision_lock_ticks = 0
         actor.action = Action(ActionType.SLEEP, explanation="Sleeping and processing memories")
-        self.emit("sleep_started", actor.id, short_memories=len(actor.short_term_memory))
+        self.emit(
+            "sleep_started",
+            actor.id,
+            short_memories=len(actor.short_term_memory),
+            duration_ticks=sleep_ticks,
+            rest_type="night" if not self.world_time()["is_daylight"] else "nap",
+            **self.world_time(),
+        )
 
     def _advance_sleep(self, actor: Entity) -> None:
         actor.sleep_ticks_remaining = max(0, actor.sleep_ticks_remaining - 1)
-        actor.energy = min(100, actor.energy + 0.75)
+        restoration_rate = 80 / self.config.resolved_sleep_duration_ticks
+        actor.energy = min(100, actor.energy + restoration_rate)
         if actor.kind == EntityKind.COW:
             if actor.sleep_ticks_remaining == 0:
                 actor.state = AgentState.AWAKE
@@ -664,7 +775,7 @@ class Simulation:
             return
         if (
             actor.state == AgentState.SLEEPING
-            and actor.sleep_ticks_remaining <= self.config.dream_start_ticks
+            and actor.sleep_ticks_remaining <= self.config.resolved_dream_start_ticks
         ):
             actor.state = AgentState.DREAMING
             dreamer_snapshot = copy.deepcopy(actor)
@@ -702,6 +813,7 @@ class Simulation:
                 actor.id,
                 dream=actor.last_dream,
                 long_memories=len(actor.long_term_memory),
+                **self.world_time(),
             )
 
     def _create_deterministic_dream(self, actor: Entity, snapshot: Entity) -> None:
@@ -1072,7 +1184,7 @@ class Simulation:
         if resource and actor.inventory.get(resource, 0) > 0:
             actor.inventory[resource] -= 1
             actor.hunger = max(0, actor.hunger - (45 if resource == "meat" else 32))
-            self.emit("eat", actor.id, resource=resource)
+            self.emit("eat", actor.id, resource=resource, **self.world_time())
 
     def _drink(self, actor: Entity, target: Entity | None) -> None:
         if target and target.kind == EntityKind.LAKE and not self._in_range(actor, target, 16):
@@ -1082,7 +1194,7 @@ class Simulation:
             actor.thirst = max(0, actor.thirst - 65)
             if actor.kind == EntityKind.HUMAN:
                 actor.decision_lock_ticks = 0
-            self.emit("drink", actor.id, target.id)
+            self.emit("drink", actor.id, target.id, **self.world_time())
 
     def _gather(self, actor: Entity, target: Entity | None, requested: str | None) -> None:
         if target and not self._in_range(actor, target, 14):
@@ -1450,7 +1562,7 @@ class Simulation:
                 return
             child = self.spawn_cow(position=position)
         actor.reproduction_drive = target.reproduction_drive = 0
-        actor.reproduction_cooldown = target.reproduction_cooldown = 2_000
+        actor.reproduction_cooldown = target.reproduction_cooldown = self.config.ticks_per_day * 7
         actor.decision_lock_ticks = 0
         if actor.kind == EntityKind.HUMAN:
             actor.remember(
@@ -1563,6 +1675,10 @@ class Simulation:
             actor.stress = max(0, actor.stress - effect_amounts["stress_relief"])
             for neighbor in self._nearby_humans(actor, 25):
                 neighbor.stress = max(0, neighbor.stress - effect_amounts["stress_relief"] * 0.5)
+        applied_impacts = [
+            self._apply_profession_impact(actor, rule["id"], impact)
+            for impact in rule.get("impacts", [])
+        ]
         actor.skills[rule_id or "innovation"] = actor.skills.get(rule_id or "innovation", 0) + 0.2
         duration = max(1, min(100, int(rule.get("duration_ticks", 20))))
         actor.action_cooldown = duration
@@ -1573,7 +1689,98 @@ class Simulation:
             rule_id=rule_id,
             outputs=rule.get("outputs", {}),
             effects=effect_amounts,
+            impacts=applied_impacts,
         )
+
+    def _apply_profession_impact(
+        self, actor: Entity, rule_id: str, impact: dict[str, object]
+    ) -> dict[str, object]:
+        metric = str(impact["metric"])
+        scope = str(impact.get("scope", "self"))
+        amount = min(10.0, max(0.1, float(impact["amount"])))
+        radius = min(80.0, max(5.0, float(impact.get("radius", 30))))
+        nearby = self._nearby_humans(actor, radius)
+
+        if metric == "beauty":
+            buildings = [
+                entity
+                for entity in self.state.living(EntityKind.BUILDING)
+                if actor.position.distance_to(entity.position) <= radius
+            ]
+            target = min(buildings, key=lambda item: item.beauty, default=None)
+            if target:
+                previous = target.beauty
+                target.beauty = min(100, target.beauty + amount)
+                actual_amount = target.beauty - previous
+            else:
+                actual_amount = 0
+            return {
+                **impact,
+                "applied_to": [target.id] if target and actual_amount else [],
+                "actual_amount": round(actual_amount, 3),
+            }
+
+        if scope == "self":
+            recipients = [actor]
+        elif scope == "nearby":
+            recipients = nearby
+        else:
+            recipient = self._most_in_need(nearby, metric)
+            recipients = [recipient] if recipient else []
+
+        applied_to: list[str] = []
+        actual_amount = 0.0
+        if metric in {"affinity", "trust"}:
+            for recipient in recipients:
+                before_outgoing = float(getattr(self._social_bond(actor, recipient), metric))
+                before_incoming = float(getattr(self._social_bond(recipient, actor), metric))
+                changes = {metric: amount, "familiarity": amount * 0.5}
+                self._update_bond(actor, recipient, event=f"served by {rule_id}", **changes)
+                self._update_bond(
+                    recipient,
+                    actor,
+                    event=f"received help from {rule_id}",
+                    **{metric: amount * 0.6, "familiarity": amount * 0.5},
+                )
+                outgoing = float(getattr(self._social_bond(actor, recipient), metric))
+                incoming = float(getattr(self._social_bond(recipient, actor), metric))
+                delta = outgoing - before_outgoing + incoming - before_incoming
+                if delta:
+                    applied_to.append(recipient.id)
+                    actual_amount += delta
+        else:
+            for recipient in recipients:
+                if metric == "knowledge":
+                    recipient.knowledge[rule_id] = recipient.knowledge.get(rule_id, 0) + amount
+                    delta = amount
+                elif metric in {"stress", "hunger", "thirst"}:
+                    current = float(getattr(recipient, metric))
+                    setattr(recipient, metric, max(0, current - amount))
+                    delta = current - float(getattr(recipient, metric))
+                else:
+                    current = float(getattr(recipient, metric))
+                    setattr(recipient, metric, min(100, current + amount))
+                    delta = float(getattr(recipient, metric)) - current
+                if delta:
+                    applied_to.append(recipient.id)
+                    actual_amount += delta
+        return {
+            **impact,
+            "applied_to": applied_to,
+            "actual_amount": round(actual_amount, 3),
+        }
+
+    @staticmethod
+    def _most_in_need(candidates: list[Entity], metric: str) -> Entity | None:
+        if not candidates:
+            return None
+        if metric in {"stress", "hunger", "thirst"}:
+            return max(candidates, key=lambda item: float(getattr(item, metric)))
+        if metric in {"affinity", "trust"}:
+            return candidates[0]
+        if metric == "knowledge":
+            return min(candidates, key=lambda item: sum(item.knowledge.values()))
+        return min(candidates, key=lambda item: float(getattr(item, metric)))
 
     def _trade(self, actor: Entity, target: Entity | None) -> None:
         if actor.action_cooldown:
@@ -1937,22 +2144,31 @@ class Simulation:
     def _update_needs(self, actor: Entity) -> None:
         hunger_multiplier = self._world_effect("hunger_rate_multiplier", default=1.0)
         thirst_multiplier = self._world_effect("thirst_rate_multiplier", default=1.0)
-        hunger_rate = 0.08 if actor.kind == EntityKind.HUMAN else 0.06
+        effective_metabolic_ticks = self.config.ticks_per_day * (
+            (24 - self.config.sleep_hours) / 24 + self.config.sleep_hours / 24 * 0.35
+        )
+        hunger_per_day = 64 if actor.kind == EntityKind.HUMAN else 80
+        hunger_rate = hunger_per_day / effective_metabolic_ticks
+        thirst_rate = 110 / effective_metabolic_ticks
         if actor.state != AgentState.AWAKE:
             hunger_rate *= 0.35
             thirst_multiplier *= 0.35
         actor.hunger = min(120, actor.hunger + hunger_rate * hunger_multiplier)
-        actor.thirst = min(120, actor.thirst + 0.1 * thirst_multiplier)
+        actor.thirst = min(120, actor.thirst + thirst_rate * thirst_multiplier)
         if actor.state == AgentState.AWAKE:
-            actor.social = max(0, actor.social - (0.025 if actor.kind == EntityKind.HUMAN else 0))
-            actor.reproduction_drive = min(100, actor.reproduction_drive + 0.025)
-        if actor.action.kind not in {ActionType.SLEEP, ActionType.IDLE}:
-            actor.energy = max(0, actor.energy - 0.05)
+            awake_ticks = self.config.ticks_per_day * (24 - self.config.sleep_hours) / 24
+            if actor.kind == EntityKind.HUMAN:
+                actor.social = max(0, actor.social - 30 / awake_ticks)
+            actor.reproduction_drive = min(100, actor.reproduction_drive + 5 / awake_ticks)
+            energy_rate = 50 / awake_ticks
+            if actor.action.kind not in {ActionType.IDLE, ActionType.MOVE}:
+                energy_rate += 10 / awake_ticks
+            actor.energy = max(0, actor.energy - energy_rate)
         if actor.action_cooldown:
             actor.action_cooldown -= 1
         if actor.reproduction_cooldown:
             actor.reproduction_cooldown -= 1
-        actor.age_years += 1 / 100_000
+        actor.age_years += 1 / (365 * self.config.ticks_per_day)
         if actor.kind == EntityKind.HUMAN:
             self._update_psychology(actor)
         if actor.hunger > 100 or actor.thirst > 100 or actor.energy <= 0:
@@ -1973,13 +2189,14 @@ class Simulation:
     def _update_psychology(self, actor: Entity) -> None:
         if actor.state == AgentState.AWAKE:
             actor.aesthetic_need = min(
-                100, actor.aesthetic_need + 0.008 + actor.temperament.creativity * 0.006
+                100,
+                actor.aesthetic_need + 0.0007 + actor.temperament.creativity * 0.0006,
             )
             actor.growth_drive = min(
                 100,
                 actor.growth_drive
-                + 0.006
-                + (actor.temperament.curiosity + actor.temperament.ambition) * 0.004,
+                + 0.0004
+                + (actor.temperament.curiosity + actor.temperament.ambition) * 0.00035,
             )
             pressure = max(0, actor.hunger - 65) + max(0, actor.thirst - 65)
             loneliness = max(0, 35 - actor.social)
@@ -1995,7 +2212,7 @@ class Simulation:
             skill = actor.skills.get(str(actor.profession), 0)
             fulfillment = actor.values.get(self._profession_value(actor.profession), 50) / 100
             target = 35 + fulfillment * 45 + min(15, skill)
-            actor.profession_satisfaction += (target - actor.profession_satisfaction) * 0.0008
+            actor.profession_satisfaction += (target - actor.profession_satisfaction) * 0.00008
 
     def _update_vocations(self) -> None:
         interval = self.config.vocation_review_interval_ticks
@@ -2009,7 +2226,7 @@ class Simulation:
             if (
                 human.profession != Profession.UNASSIGNED
                 and human.profession_satisfaction >= 28
-                and self.state.tick - human.last_vocation_tick < 1_500
+                and self.state.tick - human.last_vocation_tick < self.config.ticks_per_day
             ):
                 continue
             scores = self._vocation_scores(human, counts)
@@ -2138,7 +2355,9 @@ class Simulation:
 
         humans = self.state.living(EntityKind.HUMAN)
         desired_factions = min(5, len(humans) // 12)
-        if self.state.tick % 800 == 0 and len(self.state.factions) < desired_factions:
+        if self.state.tick % self.config.ticks_per_day == 0 and len(
+            self.state.factions
+        ) < desired_factions:
             unaffiliated = [
                 human for human in humans if not human.faction_id and human.age_years >= 16
             ]
@@ -2147,7 +2366,11 @@ class Simulation:
                 self._form_faction(founder)
 
         wars = sum(len(faction.rivals) for faction in self.state.factions.values()) // 2
-        if self.state.tick % 600 == 0 and not wars and len(self.state.factions) >= 2:
+        if (
+            self.state.tick % self.config.ticks_per_day == 0
+            and not wars
+            and len(self.state.factions) >= 2
+        ):
             factions = sorted(
                 self.state.factions.values(),
                 key=lambda faction: self.state.entities[faction.leader_id].temperament.aggression,
@@ -2215,7 +2438,7 @@ class Simulation:
                 intensity=0.35 if event_type in {"harvest", "mineral_boom"} else 0.65,
                 source=event_type,
             )
-        self.emit("world_event", event=event_type)
+        self.emit("world_event", event=event_type, **self.world_time())
 
     def _apply_ai_results(self) -> None:
         if not self.ai_worker:
@@ -2224,6 +2447,17 @@ class Simulation:
         for result in self.ai_worker.drain():
             entity = self.state.entities.get(result.entity_id)
             if not entity or not entity.alive:
+                continue
+            result_age = self.state.tick - result.requested_tick
+            if result.requested_tick and result_age > self.config.ai.result_max_age_ticks:
+                entity.thinking = False
+                self.emit(
+                    "ai_rejected",
+                    entity.id,
+                    reason="stale decision",
+                    requested_tick=result.requested_tick,
+                    age_ticks=result_age,
+                )
                 continue
             if entity.state != AgentState.AWAKE:
                 entity.thinking = False
@@ -2280,6 +2514,8 @@ class Simulation:
                 explanation=action.explanation,
                 goal=entity.goal,
                 mood=entity.mood,
+                requested_tick=result.requested_tick,
+                age_ticks=result_age,
             )
 
     def _apply_reflection_results(self) -> None:
@@ -2510,6 +2746,7 @@ class Simulation:
         return {
             "tick": self.state.tick,
             "seed": self.state.seed,
+            "world_time": self.world_time(),
             "decision_seed": self.state.seed + self.state.tick + int(actor.id.rsplit("-", 1)[-1]),
             "nearby": nearby,
             "factions": factions,
@@ -2645,6 +2882,35 @@ class Simulation:
             "knowledge": round(sum(sum(human.knowledge.values()) for human in humans) / population),
             "stress": round(sum(human.stress for human in humans) / population),
         }
+
+    def world_time(self) -> dict[str, object]:
+        elapsed_hours = self.state.tick / self.config.ticks_per_day * 24
+        absolute_hour = self.config.day_start_hour + elapsed_hours
+        day = int(absolute_hour // 24) + 1
+        hour_value = absolute_hour % 24
+        hour = int(hour_value)
+        minute = int((hour_value - hour) * 60)
+        is_daylight = self.config.daylight_start_hour <= hour_value < self.config.night_start_hour
+        if 5 <= hour_value < 7:
+            phase = "dawn"
+        elif 7 <= hour_value < 19:
+            phase = "day"
+        elif 19 <= hour_value < self.config.night_start_hour:
+            phase = "dusk"
+        else:
+            phase = "night"
+        return {
+            "day": day,
+            "hour": hour,
+            "minute": minute,
+            "phase": phase,
+            "is_daylight": is_daylight,
+        }
+
+    def _should_sleep_now(self, actor: Entity) -> bool:
+        if actor.kind != EntityKind.HUMAN or actor.state != AgentState.AWAKE:
+            return False
+        return not bool(self.world_time()["is_daylight"])
 
     def _approach_or(
         self,

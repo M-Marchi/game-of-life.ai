@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 game-of-life = "game_of_life.main:main"
+game-of-life-diagnose = "game_of_life.diagnostics:main"
 
 [dependency-groups]
 dev = [
@@ -37,4 +38,3 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-

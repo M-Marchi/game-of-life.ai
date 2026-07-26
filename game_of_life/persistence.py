@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,16 @@ from game_of_life.models import (
     WorldState,
 )
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
+ROUTINE_EVENT_TYPES = {
+    "eat",
+    "drink",
+    "gather",
+    "study",
+    "sleep_started",
+    "woke_up",
+    "temperament_changed",
+}
 
 
 class WorldStore:
@@ -40,13 +50,16 @@ class WorldStore:
                 value TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS snapshots (
-                tick INTEGER PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                tick INTEGER NOT NULL,
                 state_json TEXT NOT NULL,
                 rng_json TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, tick)
             );
             CREATE TABLE IF NOT EXISTS events (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
                 tick INTEGER NOT NULL,
                 event_type TEXT NOT NULL,
                 action TEXT,
@@ -54,9 +67,11 @@ class WorldStore:
                 target_id TEXT,
                 payload_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
-            CREATE INDEX IF NOT EXISTS idx_events_actor_action ON events(actor_id, action);
+            CREATE INDEX IF NOT EXISTS idx_events_action ON events(run_id, action);
+            CREATE INDEX IF NOT EXISTS idx_events_actor_action
+                ON events(run_id, actor_id, action);
             CREATE TABLE IF NOT EXISTS mental_states (
+                run_id TEXT NOT NULL,
                 tick INTEGER NOT NULL,
                 entity_id TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -67,12 +82,13 @@ class WorldStore:
                 stress REAL NOT NULL,
                 mental_json TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (entity_id, tick)
+                PRIMARY KEY (run_id, entity_id, tick)
             );
-            CREATE INDEX IF NOT EXISTS idx_mental_states_tick ON mental_states(tick);
+            CREATE INDEX IF NOT EXISTS idx_mental_states_tick ON mental_states(run_id, tick);
             CREATE INDEX IF NOT EXISTS idx_mental_states_profession
-                ON mental_states(profession, tick);
+                ON mental_states(run_id, profession, tick);
             CREATE TABLE IF NOT EXISTS social_edges (
+                run_id TEXT NOT NULL,
                 tick INTEGER NOT NULL,
                 source_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
@@ -88,36 +104,79 @@ class WorldStore:
                 roles_json TEXT NOT NULL,
                 edge_json TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (source_id, target_id, tick)
+                PRIMARY KEY (run_id, source_id, target_id, tick)
             );
-            CREATE INDEX IF NOT EXISTS idx_social_edges_tick ON social_edges(tick);
+            CREATE INDEX IF NOT EXISTS idx_social_edges_tick ON social_edges(run_id, tick);
             CREATE INDEX IF NOT EXISTS idx_social_edges_relationship
-                ON social_edges(relationship, tick);
+                ON social_edges(run_id, relationship, tick);
             CREATE INDEX IF NOT EXISTS idx_social_edges_target
-                ON social_edges(target_id, tick);
+                ON social_edges(run_id, target_id, tick);
             CREATE TABLE IF NOT EXISTS rule_versions (
+                run_id TEXT NOT NULL,
                 rule_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
                 active INTEGER NOT NULL,
                 definition_json TEXT NOT NULL,
-                PRIMARY KEY (rule_id, version)
+                PRIMARY KEY (run_id, rule_id, version)
             );
+            CREATE TABLE IF NOT EXISTS routine_activity (
+                run_id TEXT NOT NULL,
+                day INTEGER NOT NULL,
+                entity_id TEXT NOT NULL,
+                activity TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                first_tick INTEGER NOT NULL,
+                last_tick INTEGER NOT NULL,
+                last_payload_json TEXT NOT NULL,
+                PRIMARY KEY (run_id, day, entity_id, activity, detail)
+            );
+            CREATE INDEX IF NOT EXISTS idx_routine_activity_day
+                ON routine_activity(run_id, day, activity);
             """
         )
         self.connection.execute(
             "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
+        row = self.connection.execute(
+            "SELECT value FROM metadata WHERE key = 'current_run_id'"
+        ).fetchone()
+        self.run_id = str(row[0]) if row else self._new_run_id()
+        if not row:
+            self.connection.execute(
+                "INSERT INTO metadata(key, value) VALUES('current_run_id', ?)",
+                (self.run_id,),
+            )
         self.connection.commit()
 
+    @staticmethod
+    def _new_run_id() -> str:
+        return f"run-{uuid.uuid4().hex[:12]}"
+
+    @classmethod
+    def recreate(cls, path: str | Path) -> None:
+        database_path = Path(path)
+        for candidate in (
+            database_path,
+            Path(f"{database_path}-wal"),
+            Path(f"{database_path}-shm"),
+        ):
+            candidate.unlink(missing_ok=True)
+
     def record_event(self, event: WorldEvent) -> None:
+        if event.event_type in ROUTINE_EVENT_TYPES:
+            self._record_routine_activity(event)
+            return
         action = event.payload.get("action")
         if hasattr(action, "value"):
             action = action.value
         self.connection.execute(
-            "INSERT INTO events(tick, event_type, action, actor_id, target_id, payload_json) "
-            "VALUES(?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events("
+            "run_id, tick, event_type, action, actor_id, target_id, payload_json) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?)",
             (
+                self.run_id,
                 event.tick,
                 event.event_type,
                 action,
@@ -137,10 +196,41 @@ class WorldStore:
             )
         elif event.event_type == "rule_rollback":
             self.connection.execute(
-                "UPDATE rule_versions SET active = 0 WHERE rule_id = ?",
-                (str(event.payload["rule_id"]),),
+                "UPDATE rule_versions SET active = 0 WHERE run_id = ? AND rule_id = ?",
+                (self.run_id, str(event.payload["rule_id"])),
             )
         if self._pending_events >= 100 or event.event_type.startswith("rule_"):
+            self.connection.commit()
+            self._pending_events = 0
+
+    def _record_routine_activity(self, event: WorldEvent) -> None:
+        detail_value = (
+            event.payload.get("resource")
+            or event.payload.get("field")
+            or event.payload.get("rest_type")
+            or event.payload.get("source")
+            or ""
+        )
+        self.connection.execute(
+            "INSERT INTO routine_activity("
+            "run_id, day, entity_id, activity, detail, count, first_tick, last_tick, "
+            "last_payload_json) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?) "
+            "ON CONFLICT(run_id, day, entity_id, activity, detail) DO UPDATE SET "
+            "count = count + 1, last_tick = excluded.last_tick, "
+            "last_payload_json = excluded.last_payload_json",
+            (
+                self.run_id,
+                int(event.payload.get("day", 1)),
+                event.actor_id or "world",
+                event.event_type,
+                str(detail_value),
+                event.tick,
+                event.tick,
+                json.dumps(event.payload, sort_keys=True),
+            ),
+        )
+        self._pending_events += 1
+        if self._pending_events >= 100:
             self.connection.commit()
             self._pending_events = 0
 
@@ -148,8 +238,9 @@ class WorldStore:
         state_json = json.dumps(simulation.state.to_dict(), sort_keys=True)
         rng_json = json.dumps(simulation.random.getstate())
         self.connection.execute(
-            "INSERT OR REPLACE INTO snapshots(tick, state_json, rng_json) VALUES(?, ?, ?)",
-            (simulation.state.tick, state_json, rng_json),
+            "INSERT OR REPLACE INTO snapshots(run_id, tick, state_json, rng_json) "
+            "VALUES(?, ?, ?, ?)",
+            (self.run_id, simulation.state.tick, state_json, rng_json),
         )
         self.connection.commit()
 
@@ -158,6 +249,7 @@ class WorldStore:
         for human in simulation.state.living(EntityKind.HUMAN):
             mental_state = {
                 "tick": simulation.state.tick,
+                "world_time": simulation.world_time(),
                 "entity_id": human.id,
                 "name": human.name,
                 "age_years": round(human.age_years, 4),
@@ -201,6 +293,7 @@ class WorldStore:
             }
             rows.append(
                 (
+                    self.run_id,
                     simulation.state.tick,
                     human.id,
                     human.name,
@@ -214,8 +307,8 @@ class WorldStore:
             )
         self.connection.executemany(
             "INSERT OR REPLACE INTO mental_states("
-            "tick, entity_id, name, profession, mood, goal, self_awareness, stress, mental_json"
-            ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "run_id, tick, entity_id, name, profession, mood, goal, self_awareness, stress, "
+            "mental_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         self.save_social_graph(simulation, commit=False)
@@ -225,6 +318,7 @@ class WorldStore:
         graph = simulation.social_graph()
         rows = [
             (
+                self.run_id,
                 simulation.state.tick,
                 edge["source"],
                 edge["target"],
@@ -244,9 +338,10 @@ class WorldStore:
         ]
         self.connection.executemany(
             "INSERT OR REPLACE INTO social_edges("
-            "tick, source_id, target_id, relationship, affinity, trust, attraction, respect, "
+            "run_id, tick, source_id, target_id, relationship, affinity, trust, attraction, "
+            "respect, "
             "fear, familiarity, interaction_count, last_interaction_tick, roles_json, edge_json) "
-            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         if commit:
@@ -254,8 +349,9 @@ class WorldStore:
 
     def mental_history(self, entity_id: str, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.connection.execute(
-            "SELECT mental_json FROM mental_states WHERE entity_id = ? ORDER BY tick DESC LIMIT ?",
-            (entity_id, limit),
+            "SELECT mental_json FROM mental_states WHERE run_id = ? AND entity_id = ? "
+            "ORDER BY tick DESC LIMIT ?",
+            (self.run_id, entity_id, limit),
         ).fetchall()
         return [json.loads(row[0]) for row in reversed(rows)]
 
@@ -263,9 +359,10 @@ class WorldStore:
         self, source_id: str, target_id: str, limit: int = 100
     ) -> list[dict[str, Any]]:
         rows = self.connection.execute(
-            "SELECT edge_json FROM social_edges WHERE source_id = ? AND target_id = ? "
+            "SELECT edge_json FROM social_edges "
+            "WHERE run_id = ? AND source_id = ? AND target_id = ? "
             "ORDER BY tick DESC LIMIT ?",
-            (source_id, target_id, limit),
+            (self.run_id, source_id, target_id, limit),
         ).fetchall()
         return [json.loads(row[0]) for row in reversed(rows)]
 
@@ -273,7 +370,9 @@ class WorldStore:
         self, config: SimulationConfig, *, ai_worker: Any = None, innovation_manager: Any = None
     ) -> Simulation | None:
         row = self.connection.execute(
-            "SELECT state_json, rng_json FROM snapshots ORDER BY tick DESC LIMIT 1"
+            "SELECT state_json, rng_json FROM snapshots WHERE run_id = ? "
+            "ORDER BY tick DESC LIMIT 1",
+            (self.run_id,),
         ).fetchone()
         if row is None:
             return None
@@ -286,13 +385,14 @@ class WorldStore:
         )
         simulation.state = _world_from_dict(state_data)
         simulation.random.setstate(_as_tuple(json.loads(row[1])))
+        simulation.events = self.recent_events(limit=250)
         return simulation
 
     def recent_events(self, limit: int = 100) -> list[WorldEvent]:
         rows = self.connection.execute(
             "SELECT tick, event_type, actor_id, target_id, payload_json "
-            "FROM events ORDER BY sequence DESC LIMIT ?",
-            (limit,),
+            "FROM events WHERE run_id = ? ORDER BY sequence DESC LIMIT ?",
+            (self.run_id, limit),
         ).fetchall()
         return [
             WorldEvent(row[0], row[1], row[2], row[3], json.loads(row[4])) for row in reversed(rows)
@@ -303,8 +403,8 @@ class WorldStore:
     ) -> None:
         self.connection.execute(
             "INSERT OR REPLACE INTO rule_versions"
-            "(rule_id, version, active, definition_json) VALUES(?, ?, ?, ?)",
-            (rule_id, version, int(active), json.dumps(definition, sort_keys=True)),
+            "(run_id, rule_id, version, active, definition_json) VALUES(?, ?, ?, ?, ?)",
+            (self.run_id, rule_id, version, int(active), json.dumps(definition, sort_keys=True)),
         )
         self.connection.commit()
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -26,12 +27,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--save", type=Path, default=Path("saves/world.db"))
     parser.add_argument("--load", action="store_true", help="resume the latest snapshot")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="do not pace an AI headless run in real time (AI results may remain incomplete)",
+    )
+    parser.add_argument(
+        "--ai-wait-seconds",
+        type=float,
+        default=10.0,
+        help="maximum time to finish pending AI work before saving (default: 10)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(ai_enabled=not args.no_ai, seed=args.seed)
+    if not args.load:
+        WorldStore.recreate(args.save)
     ai_worker = _start_ai(config) if config.ai.enabled else None
     innovation_manager = InnovationManager(ai_worker) if ai_worker else None
 
@@ -53,14 +67,24 @@ def main(argv: list[str] | None = None) -> int:
         simulation.add_event_sink(store.record_event)
         store.save_mental_states(simulation)
         if args.headless:
-            _run_headless(simulation, args.ticks, store)
+            _run_headless(
+                simulation,
+                args.ticks,
+                store,
+                realtime=bool(ai_worker and not args.fast),
+            )
         else:
             _run_pygame(simulation, store)
+        if ai_worker:
+            _finish_ai(
+                simulation,
+                ai_worker,
+                innovation_manager,
+                max(0.0, args.ai_wait_seconds),
+            )
         store.save_snapshot(simulation)
         store.save_mental_states(simulation)
 
-    if ai_worker:
-        ai_worker.stop()
     stats = simulation.statistics()
     logger.info(
         "Stopped at tick {} with {} humans and {} cows",
@@ -82,7 +106,13 @@ def _start_ai(config: SimulationConfig) -> AIWorker | None:
     return worker
 
 
-def _run_headless(simulation: Simulation, ticks: int, store: WorldStore) -> None:
+def _run_headless(
+    simulation: Simulation,
+    ticks: int,
+    store: WorldStore,
+    *,
+    realtime: bool = False,
+) -> None:
     for _ in range(max(0, ticks)):
         simulation.step()
         if simulation.state.tick % simulation.config.autosave_interval_ticks == 0:
@@ -90,6 +120,36 @@ def _run_headless(simulation: Simulation, ticks: int, store: WorldStore) -> None
         mental_interval = simulation.config.mental_snapshot_interval_ticks
         if mental_interval and simulation.state.tick % mental_interval == 0:
             store.save_mental_states(simulation)
+        if realtime:
+            time.sleep(1 / simulation.config.ticks_per_second)
+
+
+def _finish_ai(
+    simulation: Simulation,
+    worker: AIWorker,
+    innovation_manager: InnovationManager | None,
+    timeout_seconds: float,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while worker.pending_count and time.monotonic() < deadline:
+        simulation._apply_ai_results()
+        if innovation_manager:
+            innovation_manager.apply_results(simulation)
+        if worker.pending_count:
+            time.sleep(0.02)
+    worker.stop()
+    simulation._apply_ai_results()
+    if innovation_manager:
+        innovation_manager.apply_results(simulation)
+    cancelled_entities, cancelled_rule = worker.cancel_pending()
+    for entity_id in cancelled_entities:
+        entity = simulation.state.entities.get(entity_id)
+        if entity:
+            entity.thinking = False
+            entity.reflection_pending = False
+        simulation.emit("ai_cancelled", entity_id, reason="shutdown timeout")
+    if cancelled_rule:
+        simulation.emit("rule_cancelled", reason="shutdown timeout")
 
 
 def _run_pygame(simulation: Simulation, store: WorldStore) -> None:

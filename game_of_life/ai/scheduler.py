@@ -15,6 +15,7 @@ class DecisionResult:
     entity_id: str
     intent: AgentIntent | None
     error: str | None = None
+    requested_tick: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class RuleResult:
     proposal: RuleProposal | None
     error: str | None = None
     proposer_id: str | None = None
+    context: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +31,7 @@ class ReflectionResult:
     entity_id: str
     reflection: SleepReflection | None
     error: str | None = None
+    requested_tick: int = 0
 
 
 class AIWorker:
@@ -54,6 +57,14 @@ class AIWorker:
 
     def is_pending(self, entity_id: str) -> bool:
         return entity_id in self._pending
+
+    @property
+    def pending_entity_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._pending))
+
+    @property
+    def rule_pending(self) -> bool:
+        return self._rule_pending
 
     def submit(self, entity: Entity, context: dict[str, Any]) -> bool:
         if entity.id in self._pending:
@@ -122,6 +133,18 @@ class AIWorker:
         self._stopped.set()
         self._thread.join(timeout=1.0)
 
+    def cancel_pending(self) -> tuple[tuple[str, ...], bool]:
+        entity_ids = self.pending_entity_ids
+        rule_pending = self._rule_pending
+        self._pending.clear()
+        self._rule_pending = False
+        while True:
+            try:
+                self._requests.get_nowait()
+            except Empty:
+                break
+        return entity_ids, rule_pending
+
     def _run(self) -> None:
         while not self._stopped.is_set():
             try:
@@ -134,20 +157,52 @@ class AIWorker:
                         RuleResult(
                             self._client.propose_rule(context),
                             proposer_id=context.get("proposer_id"),
+                            context=context,
                         )
                     )
                 elif job_type == "reflection" and entity is not None:
                     reflection = self._client.reflect(entity, context)
-                    self._reflection_results.put(ReflectionResult(entity.id, reflection))
+                    self._reflection_results.put(
+                        ReflectionResult(
+                            entity.id,
+                            reflection,
+                            requested_tick=int(context.get("tick", 0)),
+                        )
+                    )
                 elif entity is not None:
                     intent = self._client.decide(entity, context)
-                    self._results.put(DecisionResult(entity.id, intent))
+                    self._results.put(
+                        DecisionResult(
+                            entity.id,
+                            intent,
+                            requested_tick=int(context.get("tick", 0)),
+                        )
+                    )
             except Exception as exc:
                 if job_type == "rule":
                     self._rule_results.put(
-                        RuleResult(None, str(exc), proposer_id=context.get("proposer_id"))
+                        RuleResult(
+                            None,
+                            str(exc),
+                            proposer_id=context.get("proposer_id"),
+                            context=context,
+                        )
                     )
                 elif job_type == "reflection" and entity is not None:
-                    self._reflection_results.put(ReflectionResult(entity.id, None, str(exc)))
+                    self._reflection_results.put(
+                        ReflectionResult(
+                            entity.id,
+                            None,
+                            str(exc),
+                            requested_tick=int(context.get("tick", 0)),
+                        )
+                    )
                 elif entity is not None:
-                    self._results.put(DecisionResult(entity.id, None, str(exc)))
+                    self._results.put(
+                        DecisionResult(
+                            entity.id,
+                            None,
+                            str(exc),
+                            requested_tick=int(context.get("tick", 0)),
+                        )
+                    )
