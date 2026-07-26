@@ -4,6 +4,16 @@ Una sandbox sociale deterministica in cui gli abitanti combinano comportamenti l
 generate da un modello Ollama. La simulazione continua a funzionare anche senza AI; il modello viene
 usato per obiettivi di alto livello e per proporre nuove professioni, ricette, edifici e regole.
 
+> **Nota sul progetto**
+>
+> Questo repository è un esperimento estivo, nato per comprendere meglio come usare gli LLM come
+> agenti autonomi e come combinarli con Ollama, simulazioni persistenti, comportamenti emergenti e
+> limiti di sicurezza. Non è un gioco completo né un programma pronto per l'uso: il codice, le
+> meccaniche e l'interfaccia sono strumenti di ricerca e possono essere sostituiti rapidamente quando
+> un esperimento suggerisce una direzione più interessante. L'obiettivo principale non è “vincere” o
+> offrire una simulazione realistica, ma osservare cosa succede quando un modello interpreta una
+> persona, conserva esperienze e prende decisioni capaci di modificare un piccolo mondo condiviso.
+
 ![Il mondo simulato e la modalità Insight](docs/game-of-life-insight.gif)
 
 ## Stato attuale
