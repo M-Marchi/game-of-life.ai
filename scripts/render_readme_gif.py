@@ -69,7 +69,10 @@ def _lzw_encode(pixels: bytes) -> bytes:
         if next_code < 4096:
             dictionary[candidate] = next_code
             next_code += 1
-            if next_code == 1 << code_size and code_size < 12:
+            # A GIF decoder grows its dictionary one emitted code behind the encoder: the first
+            # code after CLEAR only initializes its prefix. Switch width after reserving the first
+            # code that needs the wider representation, otherwise every frame corrupts mid-scan.
+            if next_code > 1 << code_size and code_size < 12:
                 code_size += 1
         else:
             emit(clear_code)
